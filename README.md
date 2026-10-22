@@ -1,8 +1,17 @@
 <p align="right"><a href="README.en.md">🇬🇧 Read in English</a></p>
 
-# ArchCore Admin
+<p align="center">
+  <img src="docs/assets/archcoreadmin-logo.png" alt="ArchCore Admin" width="460">
+</p>
 
-[![Tests](https://github.com/BlaMacfly/ArchCoreAdmin/actions/workflows/tests.yml/badge.svg)](https://github.com/BlaMacfly/ArchCoreAdmin/actions/workflows/tests.yml)
+<h1 align="center">ArchCore Admin</h1>
+
+<p align="center">
+  <b>Panneau MJ pour ArchRust et ArchCore</b><br>
+  AddOn Lua · Ace3 · commandes MJ d'ArchCore<br><br>
+  <a href="https://github.com/BlaMacfly/ArchCoreAdmin/actions/workflows/tests.yml"><img src="https://github.com/BlaMacfly/ArchCoreAdmin/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
+  <a href="https://github.com/BlaMacfly/ArchCoreAdmin/releases/latest"><img src="https://img.shields.io/github/v/release/BlaMacfly/ArchCoreAdmin" alt="Dernière version"></a>
+</p>
 
 Panneau de maître du jeu (MJ) pour le client **ArchRust**, connecté à un serveur
 [**ArchCore**](https://github.com/BlaMacfly/ArchCore).

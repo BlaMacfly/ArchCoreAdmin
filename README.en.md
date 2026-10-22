@@ -1,8 +1,17 @@
 <p align="right"><a href="README.md">🇫🇷 Lire en français</a></p>
 
-# ArchCore Admin
+<p align="center">
+  <img src="docs/assets/archcoreadmin-logo.png" alt="ArchCore Admin" width="460">
+</p>
 
-[![Tests](https://github.com/BlaMacfly/ArchCoreAdmin/actions/workflows/tests.yml/badge.svg)](https://github.com/BlaMacfly/ArchCoreAdmin/actions/workflows/tests.yml)
+<h1 align="center">ArchCore Admin</h1>
+
+<p align="center">
+  <b>GM panel for ArchRust and ArchCore</b><br>
+  Lua AddOn · Ace3 · ArchCore GM commands<br><br>
+  <a href="https://github.com/BlaMacfly/ArchCoreAdmin/actions/workflows/tests.yml"><img src="https://github.com/BlaMacfly/ArchCoreAdmin/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
+  <a href="https://github.com/BlaMacfly/ArchCoreAdmin/releases/latest"><img src="https://img.shields.io/github/v/release/BlaMacfly/ArchCoreAdmin" alt="Latest release"></a>
+</p>
 
 Game Master (GM) panel for the **ArchRust** client, connected to an
 [**ArchCore**](https://github.com/BlaMacfly/ArchCore) server. It is a Lua AddOn built on the idea of
