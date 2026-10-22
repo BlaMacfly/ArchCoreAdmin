@@ -1,5 +1,11 @@
 # Journal des versions / Changelog
 
+## 1.2.0 — 2026-10-22
+
+- Logo d'ArchCore Admin en tête de la fenêtre, à la place du titre texte ; la version est affichée
+  en petit à sa droite. La fenêtre gagne 52 px de haut, les onglets gardent leur taille.
+- ArchCore Admin logo at the top of the window instead of the text title.
+
 ## 1.1.0 — 2026-10-22
 
 - Nouvelle commande `/speed <1-10>` d'ArchCore (niveau MJ 2) dans l'onglet MJ : champ et bouton

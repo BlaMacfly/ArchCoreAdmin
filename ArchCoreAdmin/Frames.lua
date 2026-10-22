@@ -6,7 +6,10 @@ local ACA = LibStub("AceAddon-3.0"):GetAddon("ArchCoreAdmin")
 local L = LibStub("AceLocale-3.0"):GetLocale("ArchCoreAdmin")
 local W = ns.W
 
-local WIDTH, HEIGHT = 680, 440
+local WIDTH, HEIGHT = 680, 492
+-- Logo (media/logo.png, 512 × 228) affiché en tête à la place du titre.
+local LOGO_W, LOGO_H = 168, 75
+local HEADER = 80
 
 ns.sections, ns.sectionsByKey = {}, {}
 
@@ -36,27 +39,35 @@ function ACA:CreateFrames()
   self.frame = f
   f:SetSize(WIDTH, HEIGHT)
   f:SetFrameStrata("HIGH")
-  f:SetTitle("ArchCore Admin " .. (GetAddOnMetadata(addonName, "Version") or ""))
   makeMovable(f, function() return self.db.profile.framePos end)
   self:PlaceFrame()
   tinsert(UISpecialFrames, "ArchCoreAdminFrame")
 
+  -- Logo à la place du titre ; la version en petit à sa droite.
+  local logo = f:CreateTexture(nil, "ARTWORK")
+  logo:SetTexture("Interface\\AddOns\\ArchCoreAdmin\\media\\logo")
+  logo:SetSize(LOGO_W, LOGO_H)
+  logo:SetPoint("TOP", f, "TOP", 0, -3)
+  self.logo = logo
+  local version = W.Label(f, "v" .. (GetAddOnMetadata(addonName, "Version") or ""), "GameFontDisableSmall")
+  version:SetPoint("BOTTOMLEFT", logo, "BOTTOMRIGHT", 2, 6)
+
   self.levelText = W.Label(f, "", "GameFontHighlightSmall")
-  self.levelText:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -8)
+  self.levelText:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -10)
   self.targetText = W.Label(f, "", "GameFontHighlightSmall")
-  self.targetText:SetPoint("TOPRIGHT", f, "TOPRIGHT", -34, -8)
+  self.targetText:SetPoint("TOPRIGHT", f, "TOPRIGHT", -34, -10)
   self.targetText:SetJustifyH("RIGHT")
 
   -- Onglets
   local x = 10
   for _, s in ipairs(ns.sections) do
     local tab = W.Button(f, L[s.label], 104, function() self:Show(s.key) end)
-    tab:SetPoint("TOPLEFT", f, "TOPLEFT", x, -28)
+    tab:SetPoint("TOPLEFT", f, "TOPLEFT", x, -HEADER)
     s.tab = tab
     x = x + 110
 
     local page = CreateFrame("Frame", nil, f)
-    page:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -58)
+    page:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -HEADER - 30)
     page:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 12)
     page:Hide()
     s.page = page

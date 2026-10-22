@@ -175,6 +175,9 @@ fn main() {
     check("/aca ouvre", mgr.run_slash("/aca"));
     frame_ui(&mgr);
     check("fenêtre affichée", eval(&mgr, "tostring(ArchCoreAdminFrame:IsShown())") == "true");
+    let logo = eval(&mgr, "tostring(ArchCoreAdmin.logo:GetTexture())");
+    check(&format!("logo en tête ({logo})"), logo.to_lowercase().contains("logo") && eval(&mgr, "tostring(ArchCoreAdmin.logo:IsVisible())") == "true");
+    check("logo dans la fenêtre, au-dessus des onglets", eval(&mgr, "(function() local _, lb, _, lh = ArchCoreAdmin.logo:GetRect() local _, fb, _, fh = ArchCoreAdminFrame:GetRect() local _, tb, _, th = ArchCoreAdmin.sections[1].tab:GetRect() return tostring(lb + lh <= fb + fh and lb >= tb + th) end)()") == "true");
     // Mise en page : chaque élément visible tient dans la fenêtre et ne chevauche pas un autre
     // (les listes contiennent leurs lignes : on ne compare que les enfants directs de la page).
     let overlap_lua = r#"(function()

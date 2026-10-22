@@ -106,7 +106,8 @@ ArchCoreAdmin/
   Core.lua            objet AddOn (Ace3), construction et envoi des commandes, niveau MJ, /aca
   Replies.lua         lecture des réponses d'ArchCore (niveau, taux, objets, invincibilité)
   Widgets.lua         boutons, champs, cases, listes à la molette ; grisage selon le niveau
-  Frames.lua          fenêtre, onglets, bouton lanceur
+  Frames.lua          fenêtre (logo en tête), onglets, bouton lanceur
+  media/logo.png      logo de l'en-tête (512 × 228, fond transparent)
   Sections/*.lua      un fichier par onglet
 tests/banc-essai/     banc d'essai Rust (moteur d'AddOns d'ArchRust, sans affichage)
 ```
