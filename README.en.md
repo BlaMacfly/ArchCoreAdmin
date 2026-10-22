@@ -20,11 +20,11 @@ buttons that type the GM commands for you, and the server's replies read back in
 | hook on `ChatFrame:AddMessage` | `ChatFrame_AddMessageEventFilter`: ArchCore answers each command with **one** system-type chat message, which ArchRust delivers as `CHAT_MSG_SAY` **without an author**; `CHAT_MSG_SYSTEM` is watched too |
 | `UnitIsPlayer("target")` | under ArchRust `UnitIsPlayer` is only true for yourself: other characters are recognised by their CID (< `0x40000000` on ArchCore) |
 | GM level known to the client | not exposed to AddOns: the AddOn sends `/SetExp` without argument (no effect) and reads the reply (`Commande inconnue` → 0, `Niveau MJ 3 requis… (le vôtre : 2)` → 2, syntax error → 3 or more) |
-| `.lookup item` | missing from ArchCore: items by TID, name **learnt** from the `/create` reply, favourites |
+| `.lookup item` | missing from ArchCore: items by TID, name **learnt** from the `/create` or `/additem` reply, favourites |
 
-Tabs: **GM** (detected level, `/invincible`, `/recast`, `/questreset`, free command with history,
+Tabs: **GM** (detected level, `/invincible`, `/speed`, `/recast`, `/questreset`, free command with history,
 command catalogue, options), **Players** (`/kill`, `/level`, `/money`, `/rename_char`, `/chatban`),
-**Items** (`/create`), **Teleport** (`/move`, saved points), **Server** (rates, chat bonus,
+**Items** (`/create`, `/additem`), **Teleport** (`/move`, saved points), **Server** (rates, chat bonus,
 `/announce_restart`), **Log**.
 
 ## Install
@@ -54,7 +54,7 @@ cargo run --release
 ```
 
 The test bench loads the AddOn in `archrust-addons`, ArchRust's real Lua engine (from the `client`
-branch of the ArchCore repository), and checks 52 points: loading, level probe, argument building
+branch of the ArchCore repository), and checks 62 points: loading, level probe, argument building
 and validation, buttons greyed by level, confirmation, reply parsing, target detection, mouse
 clicks, no overlapping widgets in the six tabs, SavedVariables. It runs on GitHub Actions on every
 push. Tested in game on 2026-10-22 against a local ArchCore (Rust) + MariaDB; screenshots in

@@ -102,6 +102,11 @@ fn main() {
     check("/level bloqué au niveau 2", slashes(&mgr).is_empty());
     check("bouton /level grisé", eval(&mgr, "(function() for _, b in ipairs(ArchCoreAdmin.widgets) do if b.command == 'level' then return tostring(b:IsEnabled()) end end end)()") == "false");
     check("bouton /kill actif", eval(&mgr, "(function() for _, b in ipairs(ArchCoreAdmin.widgets) do if b.command == 'kill' then return tostring(b:IsEnabled()) end end end)()") == "true");
+    check("boutons /speed actifs au niveau 2", eval(&mgr, "(function() for _, b in ipairs(ArchCoreAdmin.widgets) do if b.command == 'speed' and not b:IsEnabled() then return 'non' end end return 'oui' end)()") == "oui");
+    check("bouton /additem grisé au niveau 2", eval(&mgr, "(function() for _, b in ipairs(ArchCoreAdmin.widgets) do if b.command == 'additem' then return tostring(b:IsEnabled()) end end end)()") == "false");
+    check("ligne /speed", eval(&mgr, "ArchCoreAdmin:Build('speed', {' 3 '})") == "/speed 3");
+    check("/speed sans valeur refusé", eval(&mgr, "tostring(ArchCoreAdmin:Build('speed', {''}))") == "nil");
+    check("ligne /additem", eval(&mgr, "ArchCoreAdmin:Build('additem', {190})") == "/additem 190");
 
     // 3. Niveau 3 ou plus : la sonde répond par une erreur de syntaxe.
     eval(&mgr, "ArchCoreAdmin:ProbeLevel() return ''");
@@ -137,6 +142,14 @@ fn main() {
     slashes(&mgr);
     mgr.filter_chat("CHAT_MSG_SAY", "Invincibilité activée : les monstres ne vous blessent plus.", "");
     check("invincibilité lue", eval(&mgr, "tostring(ArchCoreAdmin.invincible)") == "true");
+    eval(&mgr, "ArchCoreAdmin:Run('speed', {5}) return ''");
+    check("/speed envoyé", slashes(&mgr) == vec!["/speed 5".to_string()]);
+    mgr.filter_chat("CHAT_MSG_SAY", "Vitesse de déplacement ×5 (course 6000).", "");
+    check("vitesse lue", eval(&mgr, "tostring(ArchCoreAdmin.speed)") == "5");
+    eval(&mgr, "ArchCoreAdmin:Run('additem', {191, 2}) return ''");
+    check("/additem envoyé", slashes(&mgr) == vec!["/additem 191 2".to_string()]);
+    mgr.filter_chat("CHAT_MSG_SAY", "2 × Élixir de mana (TID 191) ajouté(s) à votre inventaire.", "");
+    check("nom d'objet appris par /additem", eval(&mgr, "ArchCoreAdmin.db.global.itemNames[191]") == "Élixir de mana");
     check("message étranger laissé passer", mgr.filter_chat("CHAT_MSG_SAY", "Bienvenue sur ArchCore", "").is_some());
     check("discussion d'un joueur ignorée", mgr.filter_chat("CHAT_MSG_SAY", "Taux d'or : 9.0", "Grokk").is_some() && eval(&mgr, "tostring(ArchCoreAdmin.rates.gold)") == "nil");
     eval(&mgr, "ArchCoreAdmin:Run('GetGold') return ''");
@@ -208,6 +221,13 @@ fn main() {
     click_at(&mgr, go);
     let sent = slashes(&mgr);
     check(&format!("clic Téléporter {sent:?}"), sent == vec!["/move -475955,-66219".to_string()]);
+    // Onglet MJ : clic sur « ×10 ».
+    mgr.run_slash("/aca gm");
+    frame_ui(&mgr);
+    slashes(&mgr);
+    click_at(&mgr, "(function() for _, b in ipairs(ArchCoreAdmin.widgets) do if b:GetText() == '×10' then return b end end end)()");
+    let sent = slashes(&mgr);
+    check(&format!("clic ×10 {sent:?}"), sent == vec!["/speed 10".to_string()]);
     // Onglet Serveur : « Tout lire » envoie 7 demandes.
     mgr.run_slash("/aca server");
     frame_ui(&mgr);

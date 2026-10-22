@@ -1,4 +1,5 @@
--- Onglet Objets (la recherche d'objets d'AzerothAdmin) : /create "nom" <TID> <quantité> <0|1>.
+-- Onglet Objets (la recherche d'objets d'AzerothAdmin) : /create "nom" <TID> <quantité> <0|1>,
+-- et /additem <TID> [quantité] pour soi.
 -- ArchCore n'a pas de commande de recherche : les objets se désignent par leur TID. L'AddOn
 -- apprend le nom de chaque objet dans la réponse du serveur (« 5 × Potion (TID 190) donné(s) ») et
 -- garde une liste de favoris.
@@ -69,6 +70,11 @@ ns.RegisterSection("items", "TAB_ITEMS", function(page)
     ACA:Run("create", { who, page.tid:GetText(), qty:GetText(), bound:GetChecked() and 1 or 0 })
   end, L["TIP_CREATE"], "create")
   create:SetPoint("TOPLEFT", page, "TOPLEFT", X + 100, -116)
+  -- /additem : raccourci du serveur pour soi-même (objet toujours échangeable).
+  local additem = W.Button(page, L["ADDITEM"], 150, function()
+    ACA:Run("additem", { page.tid:GetText(), qty:GetText() })
+  end, L["TIP_ADDITEM"], "additem")
+  additem:SetPoint("LEFT", create, "RIGHT", 6, 0)
 
   row(-162, L["FAVORITE_NAME"])
   page.label = W.Edit(page, 170)

@@ -34,7 +34,7 @@ données de modèles 3D). Son fonctionnement se résume en cinq mécanismes :
 | crochet `ChatFrame:AddMessage` | filtres `ChatFrame_AddMessageEventFilter` : ArchCore répond à chaque commande par **un** message de discussion de type système, qu'ArchRust remet en `CHAT_MSG_SAY` **sans auteur** (lignes `[?]`) ; `CHAT_MSG_SYSTEM` est écouté aussi |
 | `UnitIsPlayer("target")` | sous ArchRust, `UnitIsPlayer` ne vaut que pour soi : un autre personnage se reconnaît à son CID (< `0x40000000` chez ArchCore ; PNJ à partir de `0x40000000`, monstres de `0x50000000`) |
 | niveau de sécurité connu du client | le client ne donne pas le niveau MJ aux AddOns : l'AddOn envoie `/SetExp` sans argument (sans effet) et lit la réponse (`Commande inconnue` → 0, `Niveau MJ 3 requis… (le vôtre : 2)` → 2, erreur de syntaxe → 3 ou plus) |
-| `.lookup item` (recherche par nom) | absente d'ArchCore : objets désignés par TID, nom **appris** dans la réponse de `/create`, favoris |
+| `.lookup item` (recherche par nom) | absente d'ArchCore : objets désignés par TID, nom **appris** dans la réponse de `/create` ou `/additem`, favoris |
 | `.account onlinelist` | absente : liste des personnages **en vue** (`ArchRust.GetUnits()`) |
 | AceGUI / AceConfig, XML, FrameLib | non fournis par ArchRust : frames créées en Lua (`Widgets.lua`) ; les ScrollFrame ne découpant pas leur contenu, les listes défilent par décalage des données (molette) |
 | icône de mini-carte | bouton « MJ » déplaçable + raccourci clavier (`ArchRust.SetBinding`) |
@@ -43,9 +43,9 @@ Les onglets reprennent ceux d'AzerothAdmin pour lesquels ArchCore a des commande
 
 | Onglet | Commandes |
 |---|---|
-| **MJ** | niveau MJ détecté, `/invincible`, `/recast`, `/questreset`, commande libre avec historique, catalogue de toutes les commandes, réglages |
+| **MJ** | niveau MJ détecté, `/invincible`, `/speed` (vitesse ×1 à ×10), `/recast`, `/questreset`, commande libre avec historique, catalogue de toutes les commandes, réglages |
 | **Joueurs** | `/kill`, `/level`, `/money`, `/rename_char`, `/chatban` (5 min, 15 min, 1 h, 1 jour, durée libre, lever) sur un nom saisi, ciblé ou choisi parmi les joueurs en vue |
-| **Objets** | `/create "nom" <TID> <quantité> <0\|1>`, favoris, noms d'objets appris |
+| **Objets** | `/create "nom" <TID> <quantité> <0\|1>`, `/additem <TID> [quantité]` (pour soi), favoris, noms d'objets appris |
 | **Téléport** | `/move x,z` vers des coordonnées, sa position, celle de la cible ou un point enregistré (villages de départ d'ArchCore fournis) |
 | **Serveur** | taux `/GetExp`… `/SetPrestigeRate`, bonus de discussion, `/announce_restart` (et annulation) |
 | **Journal** | commandes envoyées et réponses du serveur, horodatées, 300 lignes par personnage |
@@ -136,7 +136,7 @@ cargo run --release
 Le banc charge l'AddOn dans `archrust-addons`, le vrai moteur Lua d'ArchRust, pris dans la
 branche `client` du dépôt ArchCore (une copie locale se branche par `[patch]`, voir
 `tests/banc-essai/Cargo.toml`). Il tourne sur GitHub Actions à chaque envoi et vérifie
-52 points : chargement sans erreur, sonde et lecture des trois réponses possibles, construction
+62 points : chargement sans erreur, sonde et lecture des trois réponses possibles, construction
 de chaque type d'argument et refus des entrées invalides, grisage selon le niveau, confirmation au
 clic, lecture des taux et des noms d'objets, discussion des joueurs non confondue avec les
 réponses, reconnaissance des personnages ciblés, clics à la souris sur les boutons, absence de

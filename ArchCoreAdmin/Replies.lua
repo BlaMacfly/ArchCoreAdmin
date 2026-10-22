@@ -61,11 +61,20 @@ local parsers = {
     return true
   end,
   function(msg)
-    -- « 5 × Potion de vie (TID 190) donné(s) à Testeur. » : le nom de l'objet est appris.
-    local item, tid = msg:match("^%d+ × (.+) %(TID (%d+)%) donné")
+    -- « 5 × Potion de vie (TID 190) donné(s) à Testeur. » (/create) ou « … ajouté(s) à votre
+    -- inventaire. » (/additem) : le nom de l'objet est appris.
+    local item, tid = msg:match("^%d+ × (.+) %(TID (%d+)%) ")
     if not item then return end
     ACA.db.global.itemNames[tonumber(tid)] = item
     ACA:SendMessage("ARCHCOREADMIN_ITEMS")
+    return true
+  end,
+  function(msg)
+    -- « Vitesse de déplacement ×3 (course 3600). »
+    local n = msg:match("^Vitesse de déplacement ×(%d+)")
+    if not n then return end
+    ACA.speed = tonumber(n)
+    ACA:SendMessage("ARCHCOREADMIN_STATE")
     return true
   end,
   function(msg)

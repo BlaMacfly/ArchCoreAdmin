@@ -1,5 +1,5 @@
 ## Title: ArchCore Admin
-## Version: 1.0.0
+## Version: 1.1.0
 ## Author: BlaMacfly
 ## Interface: 10000
 ## Notes: GM panel for ArchCore servers: buttons that send the GM commands and read the server replies (/aca)

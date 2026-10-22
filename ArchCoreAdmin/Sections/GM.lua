@@ -1,5 +1,5 @@
 -- Onglet MJ (l'onglet « Main » d'AzerothAdmin) : niveau MJ détecté, commandes qui portent sur le
--- MJ lui-même (/invincible, /recast, /questreset), commande libre avec historique, catalogue de
+-- MJ lui-même (/invincible, /speed, /recast, /questreset), commande libre avec historique, catalogue de
 -- toutes les commandes, et réglages de l'AddOn.
 local addonName, ns = ...
 local ACA = LibStub("AceAddon-3.0"):GetAddon("ArchCoreAdmin")
@@ -16,29 +16,50 @@ ns.RegisterSection("gm", "TAB_GM", function(page)
   probe:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -30)
 
   local l = W.Label(page, L["INVINCIBLE"], "GameFontHighlight")
-  l:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -70)
+  l:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -64)
   local state = W.Label(page, "", "GameFontNormalSmall")
   state:SetPoint("LEFT", l, "RIGHT", 8, 0)
   local on = W.Button(page, L["ENABLE"], 96, function() ACA:Run("invincible", { 1 }) end, L["TIP_INVINCIBLE"], "invincible")
-  on:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -88)
+  on:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -82)
   local off = W.Button(page, L["DISABLE"], 96, function() ACA:Run("invincible", { 0 }) end, nil, "invincible")
   off:SetPoint("LEFT", on, "RIGHT", 6, 0)
 
+  -- Vitesse : multiplicateur de 1 à 10 (/speed), oublié par le serveur à la déconnexion.
+  l = W.Label(page, L["SPEED"], "GameFontHighlight")
+  l:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -120)
+  local speed = W.Edit(page, 36)
+  speed:SetPoint("TOPLEFT", page, "TOPLEFT", 90, -116)
+  local setSpeed = W.Button(page, L["SET"], 70, function()
+    ACA:Run("speed", { speed:GetText() })
+  end, L["TIP_SPEED"], "speed")
+  setSpeed:SetPoint("LEFT", speed, "RIGHT", 6, 0)
+  local speedState = W.Label(page, "", "GameFontNormalSmall")
+  speedState:SetPoint("LEFT", setSpeed, "RIGHT", 6, 0)
+  local x = 0
+  for _, n in ipairs({ 1, 2, 3, 5, 10 }) do
+    local b = W.Button(page, "×" .. n, 44, function()
+      speed:SetText(tostring(n))
+      ACA:Run("speed", { n })
+    end, n == 1 and L["TIP_SPEED_RESET"] or format(L["TIP_SPEED_TIMES"], n), "speed")
+    b:SetPoint("TOPLEFT", page, "TOPLEFT", x, -142)
+    x = x + 49
+  end
+
   local recast = W.Button(page, L["RECAST"], 198, function() ACA:Run("recast") end, L["TIP_RECAST"], "recast")
-  recast:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -122)
+  recast:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -176)
 
   l = W.Label(page, L["QUEST_TID"], "GameFontHighlight")
-  l:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -160)
-  local quest = W.Edit(page, 70)
-  quest:SetPoint("TOPLEFT", page, "TOPLEFT", 90, -156)
-  local reset = W.Button(page, L["QUEST_RESET"], 198, function()
+  l:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -214)
+  local quest = W.Edit(page, 60)
+  quest:SetPoint("TOPLEFT", page, "TOPLEFT", 90, -210)
+  local reset = W.Button(page, L["QUEST_RESET"], 88, function()
     ACA:Run("questreset", { quest:GetText() })
   end, L["TIP_QUESTRESET"], "questreset")
-  reset:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -184)
+  reset:SetPoint("LEFT", quest, "RIGHT", 6, 0)
 
   local options = W.Label(page, L["OPTIONS"])
-  options:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -226)
-  local y = -244
+  options:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -246)
+  local y = -264
   local function option(key, text, after)
     local cb = W.Check(page, text, function(v)
       p[key] = v and true or false
@@ -100,6 +121,7 @@ ns.RegisterSection("gm", "TAB_GM", function(page)
   local function refresh()
     level:SetText(ACA:LevelText())
     state:SetText(ACA.invincible == nil and "" or (ACA.invincible and L["ON"] or L["OFF"]))
+    speedState:SetText(ACA.speed and ("×" .. ACA.speed) or "")
     refreshCatalog()
   end
   ACA:RegisterMessage("ARCHCOREADMIN_LEVEL", refresh)
