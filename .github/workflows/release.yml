@@ -1,0 +1,37 @@
+# Publication : pousser une étiquette `v1.2.3` crée une version GitHub avec
+# ArchCoreAdmin-v1.2.3.zip, qui contient le dossier ArchCoreAdmin/ prêt à copier dans addons/.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version du .toc
+        run: |
+          toc=$(sed -n 's/^## Version: *//p' ArchCoreAdmin/ArchCoreAdmin.toc | tr -d '\r')
+          if [ "v$toc" != "$GITHUB_REF_NAME" ]; then
+            echo "L'étiquette $GITHUB_REF_NAME ne correspond pas à « ## Version: $toc » du .toc" >&2
+            exit 1
+          fi
+      - name: Archive
+        run: |
+          cp LICENSE README.md README.en.md ArchCoreAdmin/
+          zip -r "ArchCoreAdmin-$GITHUB_REF_NAME.zip" ArchCoreAdmin
+      - name: Notes de version (CHANGELOG.md)
+        run: |
+          awk -v v="${GITHUB_REF_NAME#v}" '
+            /^## / { if (found) exit; if (index($0, v)) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+      - name: Version GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "ArchCoreAdmin-$GITHUB_REF_NAME.zip" --title "ArchCore Admin $GITHUB_REF_NAME" --notes-file notes.md

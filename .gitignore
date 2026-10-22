@@ -1,0 +1,4 @@
+target/
+tests/banc-essai/sv/
+tests/banc-essai/Cargo.lock
+*.zip

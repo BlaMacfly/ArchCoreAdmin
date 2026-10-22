@@ -1,0 +1,24 @@
+## Title: ArchCore Admin
+## Version: 1.0.0
+## Author: BlaMacfly
+## Interface: 10000
+## Notes: GM panel for ArchCore servers: buttons that send the GM commands and read the server replies (/aca)
+## Notes-frFR: Panneau MJ pour les serveurs ArchCore : des boutons qui envoient les commandes MJ et lisent les réponses du serveur (/aca)
+## SavedVariables: ArchCoreAdminDB
+## X-Category: Administration
+## X-License: GPL-3.0-or-later
+## X-Inspiration: AzerothAdmin (https://github.com/superstyro/AzerothAdmin)
+## X-Libraries: LibStub, AceAddon-3.0, AceEvent-3.0, AceTimer-3.0, AceConsole-3.0, AceDB-3.0, AceLocale-3.0 (intégrées au client)
+
+Locales.lua
+Catalog.lua
+Core.lua
+Replies.lua
+Widgets.lua
+Frames.lua
+Sections\GM.lua
+Sections\Players.lua
+Sections\Items.lua
+Sections\Teleport.lua
+Sections\Server.lua
+Sections\Log.lua

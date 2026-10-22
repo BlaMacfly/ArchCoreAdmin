@@ -1,0 +1,22 @@
+# Banc d'essai : charge l'AddOn dans le moteur d'AddOns d'ArchRust (branche `client` d'ArchCore)
+# et rejoue une session sans affichage. Échoue si une vérification échoue.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  banc-essai:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tests/banc-essai
+      - name: Banc d'essai
+        working-directory: tests/banc-essai
+        run: cargo run --release

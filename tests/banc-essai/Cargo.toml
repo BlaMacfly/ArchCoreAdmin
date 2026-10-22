@@ -1,0 +1,17 @@
+# Banc d'essai d'ArchCoreAdmin : charge l'AddOn dans le moteur d'AddOns d'ArchRust (sans affichage)
+# et vérifie les commandes envoyées, la lecture des réponses d'ArchCore et la mise en page.
+# Lancer : cargo run --release (depuis ce dossier).
+[package]
+name = "archcoreadmin-banc-essai"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+# ArchRust est publié dans la branche `client` du dépôt ArchCore (dossier ArchRust/).
+# Pour essayer contre une copie locale d'ArchRust, créer .cargo/config.toml :
+#   [patch."https://github.com/BlaMacfly/ArchCore"]
+#   archrust-addons = { path = "<ArchRust>/crates/archrust-addons" }
+archrust-addons = { git = "https://github.com/BlaMacfly/ArchCore", branch = "client" }
