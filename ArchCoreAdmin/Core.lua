@@ -271,6 +271,52 @@ function ACA:Confirm(text, onAccept)
 end
 
 ---------------------------------------------------------------------------------------------------
+-- Catalogue des objets du client
+---------------------------------------------------------------------------------------------------
+
+-- ArchRust donne aux AddOns le catalogue des objets d'ItemTemplateAll.ini (ArchRust.SearchItems,
+-- ArchRust.GetItemTemplate, GetItemIcon : nom, icône, niveau requis, catégorie). Un client plus
+-- ancien ne l'a pas : l'AddOn revient alors à la saisie du TID et aux noms appris du serveur.
+function ACA:HasItemCatalog()
+  local ar = _G.ArchRust
+  if type(ar) ~= "table" or type(ar.SearchItems) ~= "function" or type(ar.GetItemTemplate) ~= "function"
+    or type(ar.GetNumItemTemplates) ~= "function" then
+    return false
+  end
+  local ok, n = pcall(ar.GetNumItemTemplates)
+  return ok and (tonumber(n) or 0) > 0
+end
+
+-- Modèle d'objet { tid, name, icon, level, category, stack… } ou nil.
+function ACA:ItemTemplate(tid)
+  tid = tonumber(tid)
+  if not tid or tid ~= math.floor(tid) or not self:HasItemCatalog() then return end
+  local ok, t = pcall(ArchRust.GetItemTemplate, math.tointeger(tid) or tid)
+  if ok and type(t) == "table" then return t end
+end
+
+-- Nom d'un objet : catalogue du client, sinon nom appris dans une réponse du serveur.
+function ACA:ItemName(tid)
+  tid = tonumber(tid)
+  if not tid then return end
+  local t = self:ItemTemplate(tid)
+  return (t and t.name) or self.db.global.itemNames[tid]
+end
+
+-- Objets du catalogue : `text` (nom ou début de TID), `category` (nil = toutes), `max` au plus.
+-- Rend la liste, triée par niveau requis puis TID, et le nombre total trouvé.
+function ACA:SearchItems(text, category, max)
+  if not self:HasItemCatalog() then return {}, 0 end
+  local ok, list, total = pcall(ArchRust.SearchItems, text or "", category, max)
+  if not ok or type(list) ~= "table" then return {}, 0 end
+  table.sort(list, function(a, b)
+    if (a.level or 0) ~= (b.level or 0) then return (a.level or 0) < (b.level or 0) end
+    return a.tid < b.tid
+  end)
+  return list, total or #list
+end
+
+---------------------------------------------------------------------------------------------------
 -- Unités
 ---------------------------------------------------------------------------------------------------
 
@@ -288,6 +334,14 @@ function ACA:TargetPlayerName()
   if not UnitExists("target") then return end
   local guid = UnitGUID("target")
   if isCharacterCid(guid and tonumber(guid:match("(%d+)$"))) then return UnitName("target") end
+end
+
+-- Monstre ciblé : TID (pris dans le GUID « Unit-<tid>-<cid> ») et nom, ou nil.
+local MONSTER_CID_BASE = 0x50000000
+function ACA:TargetMonster()
+  if not UnitExists("target") then return end
+  local tid, cid = (UnitGUID("target") or ""):match("^Unit%-(%d+)%-(%d+)$")
+  if tid and tonumber(cid) >= MONSTER_CID_BASE then return tonumber(tid), UnitName("target") end
 end
 
 -- Personnages en vue, sans soi, triés par nom.

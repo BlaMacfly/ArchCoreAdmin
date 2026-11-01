@@ -10,6 +10,8 @@ local WIDTH, HEIGHT = 680, 492
 -- Logo (media/logo.png, 512 × 228) affiché en tête à la place du titre.
 local LOGO_W, LOGO_H = 168, 75
 local HEADER = 80
+-- Fenêtre réduite : une barre avec le titre, le bouton de rétablissement et la fermeture.
+local MIN_W, MIN_H = 300, 32
 
 ns.sections, ns.sectionsByKey = {}, {}
 
@@ -51,20 +53,33 @@ function ACA:CreateFrames()
   self.logo = logo
   local version = W.Label(f, "v" .. (GetAddOnMetadata(addonName, "Version") or ""), "GameFontDisableSmall")
   version:SetPoint("BOTTOMLEFT", logo, "BOTTOMRIGHT", 2, 6)
+  self.version = version
 
   self.levelText = W.Label(f, "", "GameFontHighlightSmall")
   self.levelText:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -10)
   self.targetText = W.Label(f, "", "GameFontHighlightSmall")
-  self.targetText:SetPoint("TOPRIGHT", f, "TOPRIGHT", -34, -10)
+  self.targetText:SetPoint("TOPRIGHT", f, "TOPRIGHT", -60, -10)
   self.targetText:SetJustifyH("RIGHT")
 
-  -- Onglets
+  -- Réduire / rétablir, à gauche de la fermeture ; titre de la barre réduite.
+  local minimize = W.Button(f, "-", 22, function() self:SetMinimized(not self.minimized) end)
+  minimize:SetPoint("RIGHT", f.CloseButton, "LEFT", -4, 0)
+  W.Tooltip(minimize, L["MINIMIZE"], L["TIP_MINIMIZE"])
+  self.minimizeButton = minimize
+  self.miniTitle = W.Label(f, "", "GameFontNormal")
+  self.miniTitle:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -9)
+  self.miniTitle:SetWidth(MIN_W - 70)
+  self.miniTitle:SetWordWrap(false)
+  self.miniTitle:Hide()
+
+  -- Onglets, sur toute la largeur.
   local x = 10
+  local step = math.floor((WIDTH - 20 + 6) / #ns.sections)
   for _, s in ipairs(ns.sections) do
-    local tab = W.Button(f, L[s.label], 104, function() self:Show(s.key) end)
+    local tab = W.Button(f, L[s.label], step - 6, function() self:Show(s.key) end)
     tab:SetPoint("TOPLEFT", f, "TOPLEFT", x, -HEADER)
     s.tab = tab
-    x = x + 110
+    x = x + step
 
     local page = CreateFrame("Frame", nil, f)
     page:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -HEADER - 30)
@@ -99,6 +114,8 @@ end
 function ACA:Show(key)
   local s = ns.sectionsByKey[key] or ns.sectionsByKey[self.db.profile.tab] or ns.sections[1]
   self.db.profile.tab = s.key
+  -- Ouvrir un onglet rétablit la fenêtre réduite.
+  if self.minimized then self:SetMinimized(false, true) end
   for _, other in ipairs(ns.sections) do
     other.page:SetShown(other == s)
     if other == s then other.tab:Disable() else other.tab:Enable() end
@@ -107,8 +124,32 @@ function ACA:Show(key)
   if s.page.OnShow then s.page:OnShow() end
 end
 
+-- Réduit la fenêtre à une barre (titre, rétablir, fermer) sans la fermer : les champs remplis et
+-- l'onglet ouvert sont gardés. `noShow` : ne pas réafficher l'onglet (Show s'en charge).
+function ACA:SetMinimized(on, noShow)
+  local f = self.frame
+  self.minimized = on and true or nil
+  for _, r in ipairs({ self.logo, self.version, self.levelText, self.targetText }) do r:SetShown(not on) end
+  for _, s in ipairs(ns.sections) do
+    s.tab:SetShown(not on)
+    if on then s.page:Hide() end
+  end
+  self.miniTitle:SetShown(on)
+  self.minimizeButton:SetText(on and "+" or "-")
+  self.minimizeButton.tipTitle = on and L["RESTORE"] or L["MINIMIZE"]
+  if on then
+    local s = ns.sectionsByKey[self.db.profile.tab]
+    self.miniTitle:SetText("ArchCore Admin" .. (s and (" — " .. L[s.label]) or ""))
+    f:SetSize(MIN_W, MIN_H)
+  else
+    f:SetSize(WIDTH, HEIGHT)
+    if not noShow then self:Show() end
+  end
+end
+
+-- Lanceur, raccourci, /aca : ouvre, rétablit la fenêtre réduite, ou ferme.
 function ACA:Toggle()
-  if self.frame:IsShown() then self.frame:Hide() else self:Show() end
+  if not self.frame:IsShown() or self.minimized then self:Show() else self.frame:Hide() end
 end
 
 ---------------------------------------------------------------------------------------------------

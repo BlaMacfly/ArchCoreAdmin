@@ -131,6 +131,136 @@ function W.List(parent, width, rows, onSelect)
   return list
 end
 
+-- Icône d'objet du jeu (texture du client donnée par le catalogue d'ArchRust) dans une case bordée
+-- d'or, comme les cases de l'inventaire. `icon:SetItem(tid)` ; sans icône connue : « ? ».
+function W.ItemIcon(parent, size)
+  local f = W.Panel(parent)
+  f:SetSize(size, size)
+  f:SetBackdropColor(0, 0, 0, 0.6)
+  f.tex = f:CreateTexture(nil, "ARTWORK")
+  f.tex:SetPoint("TOPLEFT", f, "TOPLEFT", 2, -2)
+  f.tex:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -2, 2)
+  f.tex:Hide()
+  f.none = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  f.none:SetPoint("CENTER", f, "CENTER", 0, 0)
+  f.none:SetText("?")
+  f.none:Hide()
+  function f:SetItem(tid, icon)
+    if icon == nil and tid then
+      local t = ACA:ItemTemplate(tid)
+      icon = t and t.icon
+    end
+    self.icon = icon
+    if icon and icon ~= "" then
+      self.tex:SetTexture(icon)
+      self.tex:Show()
+      self.none:Hide()
+    else
+      self.tex:Hide()
+      self.none:SetShown(tid ~= nil)
+    end
+  end
+  return f
+end
+
+-- Info-bulle d'un objet : nom, TID, niveau requis, catégorie, pile ; `extra` : lignes en plus.
+function W.ItemTooltip(owner, item, extra)
+  if not item then return end
+  local t = ACA:ItemTemplate(item.tid) or item
+  GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+  GameTooltip:SetText(t.name or item.name or ACA:ItemName(item.tid) or ("TID " .. item.tid))
+  GameTooltip:AddLine(format(L["ITEM_TIP_TID"], item.tid), 0.7, 0.7, 0.7)
+  if t.level and t.level > 0 then GameTooltip:AddLine(format(L["ITEM_TIP_LEVEL"], t.level), 1, 1, 1) end
+  if t.category then GameTooltip:AddLine(L["CAT_" .. t.category], 0.85, 0.7, 0.4) end
+  if t.stack and t.stack > 1 then GameTooltip:AddLine(format(L["ITEM_TIP_STACK"], t.stack), 0.7, 0.7, 0.7) end
+  for _, line in ipairs(extra or {}) do GameTooltip:AddLine(line, 0.6, 0.8, 1) end
+  GameTooltip:Show()
+end
+
+-- Liste d'objets avec leur icône : `rows` lignes de 26 px ; `columns` : colonnes à droite du nom,
+-- `{ { width = 44, text = function(item) … end }, … }` (de gauche à droite) ; `onSelect(item, index)`
+-- au clic ; molette pour défiler (décalage des données, comme W.List). Les éléments sont des tables
+-- `{ tid, name?, icon? … }` : nom et icône manquants sont cherchés dans le catalogue.
+-- `tipExtra(item)` : lignes ajoutées à l'info-bulle.
+function W.ItemList(parent, width, rows, columns, onSelect, tipExtra)
+  local ROW = 26
+  local list = W.Panel(parent)
+  list:SetSize(width, rows * ROW + 8)
+  list.items, list.offset, list.rows = {}, 0, {}
+  columns = columns or {}
+  local right = 4
+  for _, c in ipairs(columns) do right = right + c.width + 6 end
+  for i = 1, rows do
+    local r = CreateFrame("Button", nil, list, "BackdropTemplate")
+    r:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
+    r:SetBackdropColor(0, 0, 0, 0)
+    r:SetPoint("TOPLEFT", list, "TOPLEFT", 4, -4 - (i - 1) * ROW)
+    r:SetSize(width - 8, ROW)
+    r.icon = W.ItemIcon(r, ROW - 4)
+    r.icon:SetPoint("LEFT", r, "LEFT", 2, 0)
+    r.text = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.text:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
+    r.text:SetWidth(width - 8 - (ROW - 4) - 8 - right)
+    r.text:SetJustifyH("LEFT")
+    r.text:SetWordWrap(false)
+    r.cols = {}
+    local x = -4
+    for c = #columns, 1, -1 do
+      local fs = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+      fs:SetPoint("RIGHT", r, "RIGHT", x, 0)
+      fs:SetWidth(columns[c].width)
+      fs:SetJustifyH("RIGHT")
+      fs:SetWordWrap(false)
+      r.cols[c] = fs
+      x = x - columns[c].width - 6
+    end
+    r:SetScript("OnClick", function()
+      local index = list.offset + i
+      local item = list.items[index]
+      if not item then return end
+      list.selected = index
+      list:Refresh()
+      if onSelect then onSelect(item, index) end
+    end)
+    r:SetScript("OnEnter", function(self)
+      local item = list.items[list.offset + i]
+      if item then W.ItemTooltip(self, item, tipExtra and tipExtra(item)) end
+    end)
+    r:SetScript("OnLeave", hideTip)
+    list.rows[i] = r
+  end
+  list:EnableMouseWheel(true)
+  list:SetScript("OnMouseWheel", function(self, delta)
+    local max = math.max(0, #self.items - rows)
+    self.offset = Clamp(self.offset - delta * 3, 0, max)
+    self:Refresh()
+  end)
+  function list:SetItems(items)
+    self.items = items or {}
+    if self.selected and self.selected > #self.items then self.selected = nil end
+    self.offset = Clamp(self.offset, 0, math.max(0, #self.items - rows))
+    self:Refresh()
+  end
+  function list:Reset(items)
+    self.selected, self.offset = nil, 0
+    self:SetItems(items)
+  end
+  function list:Refresh()
+    for i, r in ipairs(self.rows) do
+      local index = self.offset + i
+      local item = self.items[index]
+      r:SetShown(item ~= nil)
+      if item then
+        r.icon:SetItem(item.tid, item.icon)
+        r.text:SetText(item.name or ACA:ItemName(item.tid) or "?")
+        for c, fs in ipairs(r.cols) do fs:SetText(columns[c].text(item) or "") end
+        r:SetBackdropColor(0.85, 0.62, 0.25, index == self.selected and 0.35 or 0)
+      end
+    end
+  end
+  return list
+end
+
 -- Grise les boutons des commandes que le niveau MJ connu ne permet pas.
 function ACA:UpdateWidgets()
   for _, b in ipairs(self.widgets) do

@@ -10,8 +10,11 @@ publish = false
 [workspace]
 
 [dependencies]
-# ArchRust est publié dans la branche `client` du dépôt ArchCore (dossier ArchRust/).
+# ArchRust est publié dans son propre dépôt (BlaMacfly/ArchRust, branche main) ; le catalogue des
+# objets (ArchRust.SearchItems…) que le banc vérifie y est depuis la version qui l'a introduit.
 # Pour essayer contre une copie locale d'ArchRust, créer .cargo/config.toml :
-#   [patch."https://github.com/BlaMacfly/ArchCore"]
+#   [patch."https://github.com/BlaMacfly/ArchRust"]
 #   archrust-addons = { path = "<ArchRust>/crates/archrust-addons" }
-archrust-addons = { git = "https://github.com/BlaMacfly/ArchCore", branch = "client" }
+# ou passer la même chose en ligne de commande :
+#   cargo run --release --config 'patch."https://github.com/BlaMacfly/ArchRust".archrust-addons.path="<ArchRust>/crates/archrust-addons"'
+archrust-addons = { git = "https://github.com/BlaMacfly/ArchRust", branch = "main" }

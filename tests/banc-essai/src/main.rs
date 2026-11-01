@@ -1,8 +1,33 @@
 //! Banc d'essai d'ArchCoreAdmin dans le moteur d'AddOns d'ArchRust, sans affichage : on rejoue
 //! une session (entrée en jeu, sonde du niveau MJ, réponses d'ArchCore, clics) et on vérifie
 //! les commandes que l'AddOn envoie au client.
-use archrust_addons::{AddonManager, HostCommand, PointerInput, UnitInfo};
+use archrust_addons::{AddonManager, HostCommand, ItemTemplateInfo, PointerInput, UnitInfo};
 use std::path::PathBuf;
+use std::sync::Arc;
+
+/// Petit catalogue d'objets, comme celui qu'ArchRust tire d'ItemTemplateAll.ini.
+fn catalog() -> Vec<ItemTemplateInfo> {
+    let t = |tid: i32, name: &str, item_type: i64, kind: i64, level: i64, icon: &str| ItemTemplateInfo {
+        tid,
+        name: name.into(),
+        icon: icon.into(),
+        level,
+        item_type,
+        kind,
+        part: 0,
+        stack: if item_type == 1 { 99 } else { 1 },
+    };
+    vec![
+        t(1, "Short Bow", 0, 2, 1, "l00006ba"),
+        t(190, "Small Life Potion", 1, 0, 0, "l0000040"),
+        t(198, "Passport", 2, 0, 0, "l0000041"),
+        t(486, "Reinforcement Potion", 1, 0, 0, "l0000042"),
+        t(530, "Lionheart Shield", 0, 4, 55, "l00002f1"),
+        t(531, "Steelhorn Shield", 0, 4, 63, "l00002f2"),
+        t(532, "Night Shield", 0, 4, 71, ""),
+        t(900, "Blood Ring", 0, 8, 30, "l0000100"),
+    ]
+}
 
 fn unit(cid: i32, name: &str, x: f32, z: f32) -> UnitInfo {
     UnitInfo { cid, tid: 96, name: name.into(), level: 10, hp: Some(100), position: [x, 4600.0, z], ..Default::default() }
@@ -61,6 +86,7 @@ fn main() {
     mgr.set_host(|h| {
         h.player = Some(me.clone());
         h.screen = (1280.0, 720.0);
+        h.item_templates = Arc::new(catalog());
     });
     // Le dossier « ArchCore Admin » contient l'AddOn (ArchCoreAdmin/ArchCoreAdmin.toc).
     mgr.load_dir(&root.join("../..")).unwrap();
@@ -209,7 +235,7 @@ fn main() {
       end end
       return table.concat(out, " | ")
     end)()"#;
-    for key in ["gm", "players", "items", "teleport", "server", "log"] {
+    for key in ["gm", "players", "items", "loot", "teleport", "server", "log"] {
         check(&format!("onglet {key}"), mgr.run_slash(&format!("/aca {key}")));
         frame_ui(&mgr);
         let o = eval(&mgr, overlap_lua);
@@ -244,7 +270,89 @@ fn main() {
     frame_ui(&mgr);
     println!("langue : {}", eval(&mgr, "GetLocale()"));
 
-    // 9. Compte sans droits : tout est grisé.
+    // 9. Objets : catalogue du client, catégories, recherche, choix à la souris, icônes.
+    check("catalogue d'objets vu par l'AddOn", eval(&mgr, "tostring(ArchCoreAdmin:HasItemCatalog())") == "true");
+    mgr.run_slash("/aca items");
+    frame_ui(&mgr);
+    let page = "ArchCoreAdmin.sectionsByKey.items.page";
+    let rows = |mgr: &AddonManager| eval(mgr, &format!("(function() local t = {{}} for _, it in ipairs({page}.list.items) do t[#t + 1] = it.tid end return table.concat(t, ',') end)()"));
+    check(&format!("tous les objets, par niveau requis ({})", rows(&mgr)), rows(&mgr) == "190,198,486,1,900,530,531,532");
+    click_at(&mgr, &format!("{page}.categories.armor"));
+    frame_ui(&mgr);
+    check(&format!("catégorie Armures ({})", rows(&mgr)), rows(&mgr) == "530,531,532");
+    click_at(&mgr, &format!("{page}.categories.all"));
+    eval(&mgr, &format!("{page}.search:SetText('blood') return ''"));
+    frame_ui(&mgr);
+    check(&format!("recherche par nom ({})", rows(&mgr)), rows(&mgr) == "900");
+    eval(&mgr, &format!("{page}.search:SetText('53') return ''"));
+    frame_ui(&mgr);
+    check(&format!("recherche par TID ({})", rows(&mgr)), rows(&mgr) == "530,531,532");
+    check("icône de la ligne", eval(&mgr, &format!("tostring({page}.list.rows[1].icon.tex:GetTexture())")).to_lowercase().contains("l00002f1"));
+    check("ligne sans icône : « ? »", eval(&mgr, &format!("tostring({page}.list.rows[3].icon.none:IsShown())")) == "true");
+    click_at(&mgr, &format!("{page}.list.rows[2]"));
+    frame_ui(&mgr);
+    check("clic sur un objet : TID rempli", eval(&mgr, &format!("{page}.tid:GetText()")) == "531");
+    let preview = eval(&mgr, &format!("{page}.previewName:GetText() .. '|' .. {page}.previewInfo:GetText()"));
+    check(&format!("aperçu de l'objet choisi ({preview})"), preview.starts_with("Steelhorn Shield|TID 531"));
+    check("icône de l'aperçu", eval(&mgr, &format!("tostring({page}.preview.tex:GetTexture())")).to_lowercase().contains("l00002f2"));
+    let o = eval(&mgr, overlap_lua);
+    check(&format!("mise en page des objets après recherche : {o}"), o.is_empty());
+    slashes(&mgr);
+    click_at(&mgr, "(function() for _, b in ipairs(ArchCoreAdmin.widgets) do if b.command == 'additem' then return b end end end)()");
+    let sent = slashes(&mgr);
+    check(&format!("/additem de l'objet choisi {sent:?}"), sent == vec!["/additem 531 1".to_string()]);
+    eval(&mgr, &format!("{page}.label:SetText('Mon bouclier') return ''"));
+    click_at(&mgr, &format!("{page}.addFavorite"));
+    click_at(&mgr, &format!("{page}.categories.favorites"));
+    frame_ui(&mgr);
+    check(&format!("favoris ({})", rows(&mgr)), rows(&mgr) == "531" && eval(&mgr, &format!("{page}.list.rows[1].text:GetText()")) == "Mon bouclier");
+
+    // 10. Simulateur de butin : /simloot et lecture de la réponse (en-tête puis une ligne par objet).
+    mgr.run_slash("/aca loot");
+    frame_ui(&mgr);
+    let loot = "ArchCoreAdmin.sectionsByKey.loot.page";
+    eval(&mgr, &format!("local p = {loot} p.tid:SetText('450') p.kills:SetText('500') p.drop:SetText('2') return ''"));
+    slashes(&mgr);
+    let sim = "(function() for _, b in ipairs(ArchCoreAdmin.widgets) do if b.command == 'simloot' then return b end end end)()";
+    click_at(&mgr, sim);
+    let sent = slashes(&mgr);
+    check(&format!("/simloot envoyé {sent:?}"), sent == vec!["/simloot 450 500 2.0".to_string()]);
+    let head = "Butin simulé : 500 × Green Worm (TID 450, niveau 1), taux de butin 2.0, taux d'or 1.0, tueur niveau 50 : 6123 pièce(s) d'or, 39 objet(s) en 2 sorte(s).";
+    mgr.filter_chat("CHAT_MSG_SAY", head, "");
+    check("en-tête lu", eval(&mgr, "ArchCoreAdmin.sim.kinds .. '|' .. ArchCoreAdmin.sim.gold .. '|' .. ArchCoreAdmin.sim.monster") == "2|6123|Green Worm");
+    mgr.filter_chat("CHAT_MSG_SAY", "· 31 × Reinforcement Potion (TID 486)", "");
+    mgr.filter_chat("CHAT_MSG_SAY", "· 8 × Small Life Potion (TID 190)", "");
+    frame_ui(&mgr);
+    check("objets simulés lus", eval(&mgr, "(function() local t = {} for _, i in ipairs(ArchCoreAdmin.sim.items) do t[#t + 1] = i.count .. 'x' .. i.tid end return table.concat(t, ',') end)()") == "31x486,8x190");
+    let line = eval(&mgr, &format!("{loot}.results.rows[1].text:GetText() .. '|' .. {loot}.results.rows[1].cols[1]:GetText() .. '|' .. {loot}.results.rows[1].cols[2]:GetText()"));
+    check(&format!("lignes de la liste ({line})"), line == "Reinforcement Potion|31|6.2");
+    check("icône d'un objet simulé", eval(&mgr, &format!("tostring({loot}.results.rows[2].icon.tex:GetTexture())")).to_lowercase().contains("l0000040"));
+    check("résumé", eval(&mgr, &format!("{loot}.summary:GetText()")).contains("6123"));
+    check("ligne « · » après la fin de la liste ignorée", mgr.filter_chat("CHAT_MSG_SAY", "· 1 × Passport (TID 198)", "").is_some() && eval(&mgr, "#ArchCoreAdmin.sim.items") == "2");
+    let o = eval(&mgr, overlap_lua);
+    check(&format!("mise en page du butin : {o}"), o.is_empty());
+    eval(&mgr, &format!("local p = {loot} p.drop:SetText('') p.gold:SetText('3') ArchCoreAdmin.rates.drop = 1.5 return ''"));
+    slashes(&mgr);
+    click_at(&mgr, sim);
+    let sent = slashes(&mgr);
+    check(&format!("taux d'or seul : taux de butin du serveur ajouté {sent:?}"), sent == vec!["/simloot 450 500 1.5 3.0".to_string()]);
+
+    // 11. Réduire la fenêtre au lieu de la fermer, puis la rétablir.
+    click_at(&mgr, "ArchCoreAdmin.minimizeButton");
+    frame_ui(&mgr);
+    let state = eval(&mgr, "tostring(ArchCoreAdminFrame:IsShown()) .. math.floor(ArchCoreAdminFrame:GetHeight()) .. tostring(ArchCoreAdmin.sections[1].tab:IsShown()) .. tostring(ArchCoreAdmin.logo:IsShown())");
+    check(&format!("fenêtre réduite ({state})"), state == "true32falsefalse");
+    check("titre de la barre réduite", eval(&mgr, "ArchCoreAdmin.miniTitle:GetText()").contains("ArchCore Admin"));
+    check("champs gardés", eval(&mgr, &format!("{loot}.tid:GetText()")) == "450");
+    click_at(&mgr, "ArchCoreAdmin.minimizeButton");
+    frame_ui(&mgr);
+    check("fenêtre rétablie sur le même onglet", eval(&mgr, &format!("math.floor(ArchCoreAdminFrame:GetHeight()) .. tostring({loot}:IsShown())")) == "492true");
+    eval(&mgr, "ArchCoreAdmin:SetMinimized(true) return ''");
+    eval(&mgr, "ArchCoreAdmin:Toggle() return ''");
+    check("le lanceur rétablit la fenêtre réduite", eval(&mgr, "tostring(ArchCoreAdminFrame:IsShown()) .. tostring(ArchCoreAdmin.minimized)") == "truenil");
+    check(&format!("pas d'erreur Lua (objets, butin, réduction) {:?}", mgr.errors()), mgr.errors().is_empty());
+
+    // 12. Compte sans droits : tout est grisé.
     eval(&mgr, "ArchCoreAdmin:ProbeLevel() return ''");
     slashes(&mgr);
     mgr.filter_chat("CHAT_MSG_SAY", "Commande inconnue : /SetExp", "");
@@ -256,4 +364,27 @@ fn main() {
     let saved = std::fs::read_to_string(sv.join("ArchCoreAdmin.lua")).unwrap_or_default();
     check("SavedVariables écrites", saved.contains("Anchorville") && saved.contains("Potion de vie"));
     println!("--- {} octets de SavedVariables", saved.len());
+
+    // 13. Client sans catalogue d'objets : repli sur la saisie du TID et les favoris.
+    let sv2 = root.join("sv/sans-catalogue");
+    let mut mgr = AddonManager::new(&sv2).unwrap();
+    mgr.set_host(|h| {
+        h.player = Some(me.clone());
+        h.screen = (1280.0, 720.0);
+    });
+    mgr.load_dir(&root.join("../..")).unwrap();
+    mgr.sync_world(Some(me.clone()), vec![], Some(vec![]));
+    mgr.fire_event("PLAYER_LOGIN", &[]);
+    mgr.fire("PLAYER_ENTERING_WORLD", (true, false));
+    mgr.run_slash("/aca items");
+    frame_ui(&mgr);
+    check("sans catalogue : détecté", eval(&mgr, "tostring(ArchCoreAdmin:HasItemCatalog())") == "false");
+    check("sans catalogue : recherche masquée, favoris listés", eval(&mgr, "tostring(ArchCoreAdmin.sectionsByKey.items.page.search:IsShown()) .. tostring(ArchCoreAdmin.sectionsByKey.items.page.categories.armor:IsShown())") == "falsefalse");
+    eval(&mgr, "ArchCoreAdmin.sectionsByKey.items.page.tid:SetText('190') return ''");
+    slashes(&mgr);
+    eval(&mgr, "ArchCoreAdmin:Run('additem', { ArchCoreAdmin.sectionsByKey.items.page.tid:GetText(), 2 }) return ''");
+    check("sans catalogue : /additem par TID", slashes(&mgr) == vec!["/additem 190 2".to_string()]);
+    let o = eval(&mgr, overlap_lua);
+    check(&format!("sans catalogue : mise en page {o}"), o.is_empty());
+    check(&format!("sans catalogue : pas d'erreur Lua {:?}", mgr.errors()), mgr.errors().is_empty());
 }

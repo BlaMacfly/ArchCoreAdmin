@@ -1,5 +1,5 @@
 ## Title: ArchCore Admin
-## Version: 1.2.0
+## Version: 1.3.0
 ## Author: BlaMacfly
 ## Interface: 10000
 ## Notes: GM panel for ArchCore servers: buttons that send the GM commands and read the server replies (/aca)
@@ -19,6 +19,7 @@ Frames.lua
 Sections\GM.lua
 Sections\Players.lua
 Sections\Items.lua
+Sections\Loot.lua
 Sections\Teleport.lua
 Sections\Server.lua
 Sections\Log.lua

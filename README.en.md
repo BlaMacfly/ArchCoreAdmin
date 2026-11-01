@@ -29,12 +29,16 @@ buttons that type the GM commands for you, and the server's replies read back in
 | hook on `ChatFrame:AddMessage` | `ChatFrame_AddMessageEventFilter`: ArchCore answers each command with **one** system-type chat message, which ArchRust delivers as `CHAT_MSG_SAY` **without an author**; `CHAT_MSG_SYSTEM` is watched too |
 | `UnitIsPlayer("target")` | under ArchRust `UnitIsPlayer` is only true for yourself: other characters are recognised by their CID (< `0x40000000` on ArchCore) |
 | GM level known to the client | not exposed to AddOns: the AddOn sends `/SetExp` without argument (no effect) and reads the reply (`Commande inconnue` → 0, `Niveau MJ 3 requis… (le vôtre : 2)` → 2, syntax error → 3 or more) |
-| `.lookup item` | missing from ArchCore: items by TID, name **learnt** from the `/create` or `/additem` reply, favourites |
+| `.lookup item` | missing from ArchCore: the **client's item catalogue** (`ArchRust.SearchItems`, `ArchRust.GetItemTemplate`, `GetItemIcon`: ItemTemplateAll.ini, game icons) is used to pick items; without it (older client), items by TID, name **learnt** from the `/create` or `/additem` reply, favourites |
 
 Tabs: **GM** (detected level, `/invincible`, `/speed`, `/recast`, `/questreset`, free command with history,
 command catalogue, options), **Players** (`/kill`, `/level`, `/money`, `/rename_char`, `/chatban`),
-**Items** (`/create`, `/additem`), **Teleport** (`/move`, saved points), **Server** (rates, chat bonus,
-`/announce_restart`), **Log**.
+**Items** (game items shown with their icon, name, TID and required level, by category or search;
+`/create`, `/additem`, favourites), **Loot** (farm and loot simulator: `/simloot <monster TID> <count>
+[drop rate] [gold rate]`, items obtained listed with icon, count and rate per 100 monsters),
+**Teleport** (`/move`, saved points), **Server** (rates, chat bonus, `/announce_restart`), **Log**.
+The **-** button next to the close button shrinks the window to a bar without losing the filled-in
+fields; **+** (or the GM button, the key, `/aca`) restores it.
 
 ## Install
 
@@ -44,7 +48,7 @@ command catalogue, options), **Players** (`/kill`, `/level`, `/money`, `/rename_
    `UPDATE archcore_auth.account SET gm_level = 3 WHERE username = 'admin';`
 3. In game, open the panel with the **MJ** button, **Ctrl+Shift+A** or `/aca`.
 
-`/aca gm|players|items|teleport|server|log`, `/aca probe`, `/aca send <command>`,
+`/aca gm|players|items|loot|teleport|server|log`, `/aca probe`, `/aca send <command>`,
 `/aca bind <key>`, `/aca confirm on|off`, `/aca replies on|off`, `/aca launcher on|off`, `/aca reset`.
 
 ## Known limits
@@ -54,6 +58,10 @@ command catalogue, options), **Players** (`/kill`, `/level`, `/money`, `/rename_
 - The GM level probe shows up in the server's GM log once per login (can be turned off).
 - A reply is matched with the oldest pending command (5 s at most).
 - `/move` keeps your current height (ArchCore has no height map yet).
+- The visual item picker needs an ArchRust client that gives the item catalogue to AddOns; otherwise
+  the Items tab falls back to typing the TID. Item names are the client's (English).
+- `/simloot` lists 40 kinds of items at most (the most frequent); the others are summed up on one
+  line. 10,000 monsters at most per simulation; the killer level is your character's.
 
 ## Tests
 
@@ -62,10 +70,12 @@ cd tests/banc-essai
 cargo run --release
 ```
 
-The test bench loads the AddOn in `archrust-addons`, ArchRust's real Lua engine (from the `client`
-branch of the ArchCore repository), and checks 62 points: loading, level probe, argument building
-and validation, buttons greyed by level, confirmation, reply parsing, target detection, mouse
-clicks, no overlapping widgets in the six tabs, SavedVariables. It runs on GitHub Actions on every
+The test bench loads the AddOn in `archrust-addons`, ArchRust's real Lua engine (from the
+[BlaMacfly/ArchRust](https://github.com/BlaMacfly/ArchRust) repository), and checks 98 points:
+loading, level probe, argument building and validation, buttons greyed by level, confirmation, reply
+parsing, target detection, mouse clicks, no overlapping widgets in the seven tabs, item catalogue
+(categories, search, icons, mouse picking, favourites), loot simulation (command sent, reply read,
+list and summary), minimizing and restoring the window, fallback without catalogue, SavedVariables. It runs on GitHub Actions on every
 push. Tested in game on 2026-10-22 against a local ArchCore (Rust) + MariaDB; screenshots in
 [`docs/captures/`](docs/captures/).
 

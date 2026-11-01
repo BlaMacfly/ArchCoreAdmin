@@ -23,7 +23,7 @@ end
 
 local NAME, NAME_OPT = { "name" }, { "name", opt = true }
 local INT, INT_OPT = { "int" }, { "int", opt = true }
-local FLOAT = { "float" }
+local FLOAT, FLOAT_OPT = { "float" }, { "float", opt = true }
 
 -- Taux du serveur : (clé de réponse, commande Set, commande Get).
 ns.Rates = {
@@ -54,6 +54,9 @@ def("level", 3, { INT, NAME_OPT }, { section = "players", confirm = true })
 def("money", 3, { INT, NAME_OPT }, { section = "players" })
 def("announce_restart", 3, { INT, INT_OPT }, { section = "server", confirm = true })
 def("move", 1, { { "coords" } }, { section = "teleport" })
+def("simloot", 2, { INT, INT, FLOAT_OPT, FLOAT_OPT }, { section = "loot" })
+-- Lignes d'objets que /simloot envoie au plus (SIMLOOT_LINES de gm.rs), puis une ligne de résumé.
+ns.SIMLOOT_LINES = 40
 
 -- Commandes d'Archonia sans équivalent dans ArchCore pour l'instant (page « Administration »
 -- du wiki d'ArchCore). Elles sont envoyées telles quelles depuis la commande libre.
