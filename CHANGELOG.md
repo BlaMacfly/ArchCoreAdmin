@@ -1,5 +1,31 @@
 # Journal des versions / Changelog
 
+## 1.4.0 — 2026-11-04
+
+Retour de bug n° 2 d'un testeur (points 05, 06, 11 et 14). Ce qui demande une évolution d'ArchRust est
+prêt côté panneau et décrit dans [`docs/BESOINS-CLIENT-SERVEUR.md`](docs/BESOINS-CLIENT-SERVEUR.md).
+
+- **Objet qui ne peut pas être donné** (onglet Objets) : une ligne d'état dit ce qu'il est advenu de
+  `/create` et `/additem` : objet donné, refus expliqué (objet absent des tables de l'épisode 8,
+  personnage introuvable, inventaire plein), ou silence du serveur avec ses causes possibles. Message
+  repris dans la discussion et le journal. Quantité vérifiée avant l'envoi (1 à 9 999). `/simloot` fait
+  de même dans son résumé. Toute commande sans réponse au bout de 5 secondes est notée au journal.
+- **Survol d'un objet** : partie du corps en plus du niveau, de la catégorie et de la pile. Classes,
+  emplacements et statistiques s'y ajoutent dès que le client les donne.
+- **Filtre par classe** (onglet Objets) : bouton pour les 13 classes jouables (clic, molette), affiché
+  dès que le client donne les classes des objets.
+- **Choix du monstre** (onglet Butin) : vue « Monstres » avec recherche par nom ou TID ; un clic remplit
+  le TID. La liste contient les monstres déjà rencontrés (en vue, ciblés, simulés), retenus d'une session
+  à l'autre, ceux en vue d'abord ; elle sera complète dès que le client la donnera. Un TID saisi affiche
+  le nom du monstre s'il est connu.
+- **Catalogue** : les objets que les tables du serveur n'ont pas sont écartés dès que le client le dit ;
+  d'ici là, la note de l'onglet prévient que le catalogue du client compte les ajouts d'Archonia. Filtre
+  et tri portent maintenant sur tout le catalogue : plus de liste coupée à 1 000 objets de bas TID.
+- **Sonde du niveau MJ** : un compte de niveau 3 n'est plus annoncé « inconnu ». ArchRust ne remet pas
+  la réponse à `/SetExp` : son silence est levé par `/GetExp`. Message corrigé quand rien ne répond.
+- Item refusals explained in the Items tab, class filter and full item tooltip (both once the client gives
+  the data), monster list and search in the Loot tab, GM level probe fixed.
+
 ## 1.3.0 — 2026-11-01
 
 - **Choix visuel des objets** (onglet Objets) : les objets du jeu s'affichent avec leur icône, leur

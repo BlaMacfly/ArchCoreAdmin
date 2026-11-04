@@ -14,7 +14,12 @@ fn catalog() -> Vec<ItemTemplateInfo> {
         level,
         item_type,
         kind,
-        part: 0,
+        part: match kind {
+            2 => 9,
+            4 => 10,
+            8 => 11,
+            _ => 0,
+        },
         stack: if item_type == 1 { 99 } else { 1 },
     };
     vec![
@@ -68,6 +73,11 @@ fn click_at(mgr: &AddonManager, lua_frame: &str) {
             native_over: false,
         });
     }
+}
+
+/// Lignes de l'info-bulle affichée, séparées par « | ».
+fn tooltip_text(mgr: &AddonManager) -> String {
+    eval(mgr, "(function() local t = {} for i = 1, GameTooltip._n or 0 do t[i] = _G['GameTooltipTextLeft' .. i]:GetText() end return table.concat(t, ' | ') end)()")
 }
 
 fn check(label: &str, ok: bool) {
@@ -307,10 +317,120 @@ fn main() {
     frame_ui(&mgr);
     check(&format!("favoris ({})", rows(&mgr)), rows(&mgr) == "531" && eval(&mgr, &format!("{page}.list.rows[1].text:GetText()")) == "Mon bouclier");
 
+    // 9 bis. Survol d'un objet (point 05) : ce que le client donne aujourd'hui, partie du corps comprise.
+    click_at(&mgr, &format!("{page}.categories.armor"));
+    frame_ui(&mgr);
+    eval(&mgr, &format!("local r = {page}.list.rows[1] r:GetScript('OnEnter')(r) return ''"));
+    let tip = tooltip_text(&mgr);
+    check(&format!("info-bulle d'un objet : {tip}"), tip.contains("Lionheart Shield") && tip.contains("TID 530") && tip.contains("Niveau requis 55") && tip.contains("Se porte : main droite"));
+    eval(&mgr, &format!("local r = {page}.list.rows[1] r:GetScript('OnLeave')(r) return ''"));
+    check("sans les tables du serveur : pas de filtre de classe", eval(&mgr, &format!("tostring({page}.classButton:IsShown())")) == "false");
+    check("note : le catalogue du client compte les ajouts d'Archonia", eval(&mgr, &format!("{page}.note:GetText()")).contains("Archonia"));
+
+    // 9 ter. Objet qui ne peut pas être donné (point 14) : refus du serveur, silence, succès.
+    let result = |mgr: &AddonManager| eval(mgr, &format!("{page}.status:IsShown() and {page}.status:GetText() or ''"));
+    let create = "(function() for _, b in ipairs(ArchCoreAdmin.widgets) do if b.command == 'create' then return b end end end)()";
+    eval(&mgr, &format!("{page}.tid:SetText('530') return ''"));
+    slashes(&mgr);
+    click_at(&mgr, create);
+    check("/create envoyé", slashes(&mgr) == vec![r#"/create "Testeur" 530 1 0"#.to_string()]);
+    check(&format!("attente affichée ({})", result(&mgr)), result(&mgr).contains("en attente") && eval(&mgr, &format!("tostring({page}.note:IsShown())")) == "false");
+    mgr.filter_chat("CHAT_MSG_SAY", r#"/create : objet inconnu : TID 530. Syntaxe : /create "nom" <TID> <quantité> <0|1>"#, "");
+    let refused = result(&mgr);
+    check(&format!("refus expliqué, avec le nom de l'objet ({refused})"), refused.contains("Lionheart Shield (TID 530)") && refused.contains("épisode 8") && refused.contains("Archonia"));
+    check("refus noté au journal", eval(&mgr, "ArchCoreAdmin.db.char.log[#ArchCoreAdmin.db.char.log - 1].k") == "!");
+    eval(&mgr, "ArchCoreAdmin:Run('create', {'Absent', 530, 1, 0}) return ''");
+    mgr.filter_chat("CHAT_MSG_SAY", r#"/create : personnage introuvable : Absent. Syntaxe : /create "nom" <TID> <quantité> <0|1>"#, "");
+    check(&format!("personnage introuvable ({})", result(&mgr)), result(&mgr).contains("Personnage introuvable : Absent"));
+    eval(&mgr, "ArchCoreAdmin:Run('create', {'Testeur', 530, 1, 0}) return ''");
+    mgr.filter_chat("CHAT_MSG_SAY", r#"/create : inventaire plein pour Testeur. Syntaxe : /create "nom" <TID> <quantité> <0|1>"#, "");
+    check(&format!("inventaire plein ({})", result(&mgr)), result(&mgr).contains("Inventaire plein"));
+    let additem = "(function() for _, b in ipairs(ArchCoreAdmin.widgets) do if b.command == 'additem' then return b end end end)()";
+    eval(&mgr, &format!("{page}.tid:SetText('15151') return ''"));
+    slashes(&mgr);
+    click_at(&mgr, additem);
+    check("/additem d'un TID hors catalogue", slashes(&mgr) == vec!["/additem 15151 1".to_string()]);
+    mgr.update(6.0);
+    let silence = result(&mgr);
+    check(&format!("silence du serveur expliqué ({silence})"), silence.contains("TID 15151") && silence.contains("ne répond pas") && silence.contains("Archonia"));
+    check(&format!("pas d'erreur Lua (refus) {:?}", mgr.errors()), mgr.errors().is_empty());
+    let o = eval(&mgr, overlap_lua);
+    check(&format!("mise en page avec la ligne d'état : {o}"), o.is_empty());
+    eval(&mgr, &format!("{page}.tid:SetText('190') return ''"));
+    slashes(&mgr);
+    click_at(&mgr, additem);
+    mgr.filter_chat("CHAT_MSG_SAY", "1 × Small Life Potion (TID 190) ajouté(s) à votre inventaire.", "");
+    check(&format!("objet donné affiché ({})", result(&mgr)), result(&mgr).contains("Small Life Potion"));
+    mgr.update(6.0);
+    check("réponse reçue : pas de faux silence", result(&mgr).contains("Small Life Potion"));
+    eval(&mgr, &format!("{page}.qty:SetText('10000') return ''"));
+    slashes(&mgr);
+    click_at(&mgr, additem);
+    check("quantité hors limites : rien d'envoyé", slashes(&mgr).is_empty() && result(&mgr).contains("9999"));
+    eval(&mgr, &format!("{page}.qty:SetText('1') return ''"));
+    click_at(&mgr, &format!("{page}.list.rows[1]"));
+    check("choisir un objet efface l'état, la note revient", result(&mgr).is_empty() && eval(&mgr, &format!("tostring({page}.note:IsShown())")) == "true");
+
     // 10. Simulateur de butin : /simloot et lecture de la réponse (en-tête puis une ligne par objet).
     mgr.run_slash("/aca loot");
     frame_ui(&mgr);
     let loot = "ArchCoreAdmin.sectionsByKey.loot.page";
+
+    // 10 bis. Choix du monstre (point 06) : ceux rencontrés, recherche par nom, clic.
+    let monsters = |mgr: &AddonManager| eval(mgr, &format!("(function() local t = {{}} for _, m in ipairs({loot}.monsters.items) do t[#t + 1] = m.tid .. ':' .. m.name end return table.concat(t, ',') end)()"));
+    check(&format!("monstre en vue listé ({})", monsters(&mgr)), monsters(&mgr) == "96:Ver vert");
+    check("la liste s'ouvre sans résultat à montrer", eval(&mgr, &format!("{loot}.view")) == "monsters");
+    check("note : monstres rencontrés", eval(&mgr, &format!("(function() for _, r in ipairs({{ {loot}:GetRegions() }}) do local s = r.GetText and r:GetText() if r:IsShown() and s and s:find('rencontrés', 1, true) then return 'oui' end end return 'non' end)()")) == "oui");
+    let o = eval(&mgr, overlap_lua);
+    check(&format!("mise en page des monstres : {o}"), o.is_empty());
+    mgr.sync_world(
+        Some(me.clone()),
+        vec![
+            unit(2, "Grokk", -475000.0, -66000.0),
+            unit(0x5000_0001, "Ver vert", -474000.0, -65000.0),
+            UnitInfo { cid: 0x5000_0002, tid: 451, name: "Loup gris".into(), level: 1, hp: Some(50), position: [-474500.0, 4600.0, -65500.0], ..Default::default() },
+        ],
+        None,
+    );
+    frame_ui(&mgr);
+    check(&format!("monstre apparu en vue : ajouté à la liste ({})", monsters(&mgr)), monsters(&mgr) == "451:Loup gris,96:Ver vert");
+    eval(&mgr, &format!("{loot}.monsterSearch:SetText('LOUP') return ''"));
+    frame_ui(&mgr);
+    check(&format!("recherche d'un monstre par nom ({})", monsters(&mgr)), monsters(&mgr) == "451:Loup gris");
+    eval(&mgr, &format!("{loot}.monsterSearch:SetText('9') return ''"));
+    check(&format!("recherche d'un monstre par TID ({})", monsters(&mgr)), monsters(&mgr) == "96:Ver vert");
+    eval(&mgr, &format!("{loot}.monsterSearch:SetText('') return ''"));
+    frame_ui(&mgr);
+    click_at(&mgr, &format!("{loot}.monsters.rows[1]"));
+    frame_ui(&mgr);
+    check("clic sur un monstre : TID et nom remplis", eval(&mgr, &format!("{loot}.tid:GetText() .. '|' .. {loot}.monsterName:GetText()")) == "451|Loup gris");
+    eval(&mgr, &format!("local r = {loot}.monsters.rows[1] r:GetScript('OnEnter')(r) return ''"));
+    let tip = tooltip_text(&mgr);
+    check(&format!("info-bulle d'un monstre : {tip}"), tip.contains("Loup gris") && tip.contains("TID 451") && tip.contains("En vue"));
+    eval(&mgr, &format!("local r = {loot}.monsters.rows[1] r:GetScript('OnLeave')(r) return ''"));
+    mgr.set_target(Some(0x5000_0001));
+    let target = "(function() for _, b in ipairs({ ArchCoreAdmin.sectionsByKey.loot.page:GetChildren() }) do if b:GetObjectType() == 'Button' and b.tipText and b.tipText:find('monstre ciblé', 1, true) then return b end end end)()";
+    click_at(&mgr, target);
+    check("bouton Cible : TID du monstre ciblé", eval(&mgr, &format!("{loot}.tid:GetText() .. '|' .. {loot}.monsterName:GetText()")) == "96|Ver vert");
+    mgr.set_target(None);
+    let sim_btn = "(function() for _, b in ipairs(ArchCoreAdmin.widgets) do if b.command == 'simloot' then return b end end end)()";
+    // Refus et silence de /simloot : le résumé le dit au lieu de rester sur « envoyée ».
+    eval(&mgr, &format!("local p = {loot} p.tid:SetText('99999') return ''"));
+    slashes(&mgr);
+    click_at(&mgr, sim_btn);
+    slashes(&mgr);
+    check("/simloot : la vue passe au résultat", eval(&mgr, &format!("{loot}.view")) == "results");
+    mgr.filter_chat("CHAT_MSG_SAY", "/simloot : monstre inconnu : TID 99999. Syntaxe : /simloot <TID du monstre> <nombre> [taux de butin] [taux d'or]", "");
+    let s = eval(&mgr, &format!("{loot}.summary:GetText()"));
+    check(&format!("refus de /simloot expliqué ({s})"), s.contains("TID 99999") && s.contains("rien n'a été simulé"));
+    click_at(&mgr, sim_btn);
+    slashes(&mgr);
+    mgr.update(6.0);
+    let s = eval(&mgr, &format!("{loot}.summary:GetText()"));
+    check(&format!("silence de /simloot expliqué ({s})"), s.contains("ne répond pas"));
+    let o = eval(&mgr, overlap_lua);
+    check(&format!("mise en page du résultat : {o}"), o.is_empty());
+
     eval(&mgr, &format!("local p = {loot} p.tid:SetText('450') p.kills:SetText('500') p.drop:SetText('2') return ''"));
     slashes(&mgr);
     let sim = "(function() for _, b in ipairs(ArchCoreAdmin.widgets) do if b.command == 'simloot' then return b end end end)()";
@@ -328,6 +448,7 @@ fn main() {
     check(&format!("lignes de la liste ({line})"), line == "Reinforcement Potion|31|6.2");
     check("icône d'un objet simulé", eval(&mgr, &format!("tostring({loot}.results.rows[2].icon.tex:GetTexture())")).to_lowercase().contains("l0000040"));
     check("résumé", eval(&mgr, &format!("{loot}.summary:GetText()")).contains("6123"));
+    check("monstre simulé retenu, avec son niveau", eval(&mgr, "ArchCoreAdmin.db.global.monsters[450].name .. ArchCoreAdmin.db.global.monsters[450].level") == "Green Worm1");
     check("ligne « · » après la fin de la liste ignorée", mgr.filter_chat("CHAT_MSG_SAY", "· 1 × Passport (TID 198)", "").is_some() && eval(&mgr, "#ArchCoreAdmin.sim.items") == "2");
     let o = eval(&mgr, overlap_lua);
     check(&format!("mise en page du butin : {o}"), o.is_empty());
@@ -362,7 +483,7 @@ fn main() {
 
     mgr.save_all().unwrap();
     let saved = std::fs::read_to_string(sv.join("ArchCoreAdmin.lua")).unwrap_or_default();
-    check("SavedVariables écrites", saved.contains("Anchorville") && saved.contains("Potion de vie"));
+    check("SavedVariables écrites", saved.contains("Anchorville") && saved.contains("Potion de vie") && saved.contains("Loup gris"));
     println!("--- {} octets de SavedVariables", saved.len());
 
     // 13. Client sans catalogue d'objets : repli sur la saisie du TID et les favoris.
@@ -387,4 +508,116 @@ fn main() {
     let o = eval(&mgr, overlap_lua);
     check(&format!("sans catalogue : mise en page {o}"), o.is_empty());
     check(&format!("sans catalogue : pas d'erreur Lua {:?}", mgr.errors()), mgr.errors().is_empty());
+
+    // 14. Sonde du niveau MJ quand les réponses en « / » n'arrivent pas (ArchRust actuel).
+    let sv3 = root.join("sv/sonde");
+    let mut mgr = AddonManager::new(&sv3).unwrap();
+    mgr.set_host(|h| {
+        h.player = Some(me.clone());
+        h.screen = (1280.0, 720.0);
+    });
+    mgr.load_dir(&root.join("../..")).unwrap();
+    mgr.sync_world(Some(me.clone()), vec![], Some(vec![]));
+    mgr.fire_event("PLAYER_LOGIN", &[]);
+    mgr.fire("PLAYER_ENTERING_WORLD", (true, false));
+    check("sonde : /SetExp", slashes(&mgr) == vec!["/SetExp".to_string()]);
+    mgr.update(6.0);
+    check("sonde : silence, /GetExp", slashes(&mgr) == vec!["/GetExp".to_string()]);
+    check("sonde : réponse de /GetExp masquée", mgr.filter_chat("CHAT_MSG_SAY", "Taux d'expérience : 1.0", "").is_none());
+    check("sonde : niveau 3 ou plus déduit", eval(&mgr, "ArchCoreAdmin:LevelText()").contains("3 ou plus"));
+    eval(&mgr, "ArchCoreAdmin:ProbeLevel() return ''");
+    slashes(&mgr);
+    mgr.update(6.0);
+    slashes(&mgr);
+    mgr.update(6.0);
+    check("sonde : compte sans droits, rien de plus envoyé", slashes(&mgr).is_empty());
+    check("sonde : niveau resté inconnu", eval(&mgr, "tostring(ArchCoreAdmin.gmLevel)") == "nil" && eval(&mgr, "tostring(ArchCoreAdmin.probing)") == "nil");
+    check(&format!("sonde : pas d'erreur Lua {:?}", mgr.errors()), mgr.errors().is_empty());
+
+    // 15. Client qui lit les tables du serveur (API décrite dans docs/BESOINS-CLIENT-SERVEUR.md, simulée
+    // ici en Lua : archrust-addons ne l'a pas encore). Points 05, 06, 11 et 14 au complet.
+    let sv4 = root.join("sv/tables-serveur");
+    let mut mgr = AddonManager::new(&sv4).unwrap();
+    let mut items = catalog();
+    items.push(ItemTemplateInfo { tid: 15151, name: "Divine Blight Shield".into(), kind: 4, part: 10, level: 80, stack: 1, ..Default::default() });
+    mgr.set_host(|h| {
+        h.player = Some(me.clone());
+        h.screen = (1280.0, 720.0);
+        h.item_templates = Arc::new(items);
+    });
+    mgr.load_dir(&root.join("../..")).unwrap();
+    mgr.run_script(
+        r#"
+        local base = ArchRust.GetItemTemplate
+        local extra = {
+          [1] = { classes = { 2 }, races = { 1, 2 }, minSocket = 1, maxSocket = 4, stats = { Physical_Min_Damage = 7, Physical_Max_Damage = 9, ["ATK Speed"] = 75, Fire_Min_Damage = 2, Fire_Max_Damage = 3 } },
+          [530] = { classes = { 1 }, races = { 1 }, minSocket = 2, maxSocket = 2, stats = { Physical_Defense_Point = 15, STR_Bonus_Point = 3, Water_Defense_Rate = 5, DUR = 40 } },
+          [531] = { classes = { 1 }, races = { 2 } },
+          [660] = { classes = { 1 }, races = { 2 } },
+          [900] = {},
+        }
+        function ArchRust.GetItemTemplate(tid)
+          local t = base(tid)
+          if not t then return nil end
+          t.server = t.tid ~= 15151
+          local e = extra[t.tid] or {}
+          t.classes, t.races = e.classes or {}, e.races or {}
+          t.minSocket, t.maxSocket, t.stats = e.minSocket, e.maxSocket, e.stats
+          return t
+        end
+        function ArchRust.GetMonsterTemplates()
+          return { { tid = 450, name = "Green Worm", level = 1 }, { tid = 451, name = "Grey Wolf", level = 7 }, { tid = 452, name = "Grey Bear", level = 12 } }
+        end
+        "#,
+    )
+    .unwrap();
+    mgr.sync_world(Some(me.clone()), vec![unit(0x5000_0001, "Ver vert", -474000.0, -65000.0)], Some(vec![]));
+    mgr.fire_event("PLAYER_LOGIN", &[]);
+    mgr.fire("PLAYER_ENTERING_WORLD", (true, false));
+    mgr.run_slash("/aca items");
+    frame_ui(&mgr);
+    let rows = |mgr: &AddonManager| eval(mgr, &format!("(function() local t = {{}} for _, it in ipairs({page}.list.items) do t[#t + 1] = it.tid end return table.concat(t, ',') end)()"));
+    check(&format!("tables du serveur : l'objet absent n'est pas proposé ({})", rows(&mgr)), rows(&mgr) == "190,198,486,1,900,530,531,532");
+    check("tables du serveur : note", eval(&mgr, &format!("{page}.note:GetText()")).contains("8 objets dans les tables du serveur"));
+    check("tables du serveur : filtre de classe affiché", eval(&mgr, &format!("tostring({page}.classButton:IsShown())")) == "true");
+    let o = eval(&mgr, overlap_lua);
+    check(&format!("tables du serveur : mise en page {o}"), o.is_empty());
+    click_at(&mgr, &format!("{page}.classButton"));
+    frame_ui(&mgr);
+    check(&format!("classe Knight ({})", rows(&mgr)), eval(&mgr, &format!("{page}.classButton:GetText()")) == "Classe : Knight" && rows(&mgr) == "900,530");
+    click_at(&mgr, &format!("{page}.classButton"));
+    frame_ui(&mgr);
+    check(&format!("classe Archer ({})", rows(&mgr)), rows(&mgr) == "1,900");
+    eval(&mgr, &format!("local b = {page}.classButton b:GetScript('OnMouseWheel')(b, 1) b:GetScript('OnMouseWheel')(b, 1) return ''"));
+    frame_ui(&mgr);
+    check("molette : retour à toutes les classes", eval(&mgr, &format!("{page}.classButton:GetText()")) == "Classe : Toutes");
+    eval(&mgr, &format!("{page}.search:SetText('shield') return ''"));
+    frame_ui(&mgr);
+    eval(&mgr, &format!("local r = {page}.list.rows[1] r:GetScript('OnEnter')(r) return ''"));
+    let tip = tooltip_text(&mgr);
+    check(&format!("info-bulle complète : {tip}"), tip.contains("Classes : Knight") && tip.contains("Emplacements : 2") && tip.contains("Défense physique : 15") && tip.contains("Force : 3") && tip.contains("Résistance : eau : 5") && tip.contains("Durabilité : 40"));
+    eval(&mgr, &format!("local r = {page}.list.rows[1] r:GetScript('OnLeave')(r) {page}.search:SetText('') return ''"));
+    frame_ui(&mgr);
+    eval(&mgr, &format!("local r = {page}.list.rows[4] r:GetScript('OnEnter')(r) return ''"));
+    let tip = tooltip_text(&mgr);
+    check(&format!("info-bulle d'une arme : {tip}"), tip.contains("Classes : Archer, Hunter") && tip.contains("Emplacements : 1 à 4") && tip.contains("Dégâts physiques : 7 - 9") && tip.contains("Dégâts : feu : 2 - 3") && tip.contains("Vitesse d'attaque : 75"));
+    eval(&mgr, &format!("local r = {page}.list.rows[4] r:GetScript('OnLeave')(r) {page}.tid:SetText('15151') return ''"));
+    frame_ui(&mgr);
+    check("aperçu d'un objet absent du serveur", eval(&mgr, &format!("{page}.previewInfo:GetText()")).contains("absent du serveur"));
+    slashes(&mgr);
+    let additem = "(function() for _, b in ipairs(ArchCoreAdmin.widgets) do if b.command == 'additem' then return b end end end)()";
+    click_at(&mgr, additem);
+    mgr.update(6.0);
+    let s = eval(&mgr, &format!("{page}.status:GetText()"));
+    check(&format!("silence sur un objet absent : cause sûre ({s})"), s.contains("Divine Blight Shield (TID 15151)") && s.contains("n'a pas cet objet"));
+    mgr.run_slash("/aca loot");
+    frame_ui(&mgr);
+    let monsters = |mgr: &AddonManager| eval(mgr, &format!("(function() local t = {{}} for _, m in ipairs({loot}.monsters.items) do t[#t + 1] = m.tid .. (m.level and (':' .. m.level) or '') end return table.concat(t, ',') end)()"));
+    check(&format!("liste complète des monstres, en vue d'abord ({})", monsters(&mgr)), monsters(&mgr) == "96,450:1,452:12,451:7");
+    eval(&mgr, &format!("{loot}.monsterSearch:SetText('grey') return ''"));
+    frame_ui(&mgr);
+    check(&format!("recherche dans la liste complète ({})", monsters(&mgr)), monsters(&mgr) == "452:12,451:7");
+    let o = eval(&mgr, overlap_lua);
+    check(&format!("tables du serveur : mise en page des monstres {o}"), o.is_empty());
+    check(&format!("tables du serveur : pas d'erreur Lua {:?}", mgr.errors()), mgr.errors().is_empty());
 }

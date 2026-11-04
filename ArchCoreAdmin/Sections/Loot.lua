@@ -2,12 +2,13 @@
 -- (/simloot <TID du monstre> <nombre> [taux de butin] [taux d'or]). Le serveur tire le butin de
 -- chaque monstre exactement comme à sa mort, sans rien créer, et répond par un en-tête puis une
 -- ligne « · quantité × nom (TID n) » par objet (lues dans Replies.lua : ACA.sim).
+-- À droite, deux vues : la liste des monstres à choisir (recherche par nom ou TID) et le résultat.
 local addonName, ns = ...
 local ACA = LibStub("AceAddon-3.0"):GetAddon("ArchCoreAdmin")
 local L = LibStub("AceLocale-3.0"):GetLocale("ArchCoreAdmin")
 local W = ns.W
 
-local LIST_X, LIST_W, ROWS = 316, 340, 12
+local LIST_X, LIST_W, ROWS, MONSTER_ROWS = 316, 340, 12, 10
 local QUICK = { 100, 1000, 10000 }
 
 -- Quantité pour 100 monstres, avec une décimale au besoin.
@@ -41,8 +42,8 @@ ns.RegisterSection("loot", "TAB_LOOT", function(page)
     monster:SetText(name or "")
   end, L["TIP_TARGET_MONSTER"])
   fromTarget:SetPoint("LEFT", tid, "RIGHT", 6, 0)
-  tid:SetScript("OnTextChanged", function(_, userInput)
-    if userInput then monster:SetText("") end
+  tid:SetScript("OnTextChanged", function(self, userInput)
+    if userInput then monster:SetText(ACA:MonsterName(self:GetText()) or "") end
   end)
 
   row(-74, L["KILLS"])
@@ -78,7 +79,7 @@ ns.RegisterSection("loot", "TAB_LOOT", function(page)
     end
   end
 
-  local results, summary
+  local results, summary, setView
   local simulate = W.Button(page, L["SIMULATE"], 150, function()
     local d, g = strtrim(drop:GetText() or ""), strtrim(gold:GetText() or "")
     -- Arguments positionnels : un taux d'or seul demande aussi le taux de butin.
@@ -90,6 +91,7 @@ ns.RegisterSection("loot", "TAB_LOOT", function(page)
       ACA.sim = nil
       results:Reset({})
       summary:SetText(L["SIM_WAITING"])
+      setView("results")
     end
   end, L["TIP_SIMULATE"], "simloot")
   simulate:SetPoint("TOPLEFT", page, "TOPLEFT", 0, -194)
@@ -108,14 +110,81 @@ ns.RegisterSection("loot", "TAB_LOOT", function(page)
   note:SetWidth(LIST_X - 14)
   note:SetWordWrap(true)
 
+  -- Issue de /simloot quand elle n'est pas un résultat : refus expliqué, ou silence du serveur.
+  ACA.resultHandlers.simloot = function(kind, text)
+    if kind == "ok" then return end
+    local message
+    if kind == "timeout" then
+      message = L["SIM_NO_REPLY"]
+    elseif text:find("^monstre inconnu") then
+      message = format(L["SIM_UNKNOWN_MONSTER"], tid:GetText() or "")
+    else
+      message = format(L["REFUSED_OTHER"], text)
+    end
+    ACA:Error(message)
+    summary:SetText("|cffff6060" .. message .. "|r")
+  end
+
+  -- Vue « Monstres » : la liste vient du client s'il la donne, sinon des monstres déjà rencontrés.
+  local viewButtons, monsterFrames, resultFrames = {}, {}, {}
+  local monsterSearch = W.Edit(page, 180)
+  monsterSearch:SetPoint("TOPLEFT", page, "TOPLEFT", LIST_X, -26)
+  W.Tooltip(monsterSearch, L["SEARCH"], L["TIP_SEARCH_MONSTER"])
+  local monsterCount = W.Label(page, "", "GameFontDisableSmall")
+  monsterCount:SetPoint("TOPLEFT", page, "TOPLEFT", LIST_X + 188, -30)
+  monsterCount:SetWidth(LIST_W - 188)
+  monsterCount:SetWordWrap(false)
+  local monsters = W.ItemList(page, LIST_W, MONSTER_ROWS, {
+    { width = 44, text = function(m) return tostring(m.tid) end },
+    { width = 30, text = function(m) return m.level and m.level > 0 and tostring(m.level) or "" end },
+  }, function(m)
+    tid:SetText(tostring(m.tid))
+    monster:SetText(m.name)
+  end, nil, {
+    noIcon = true,
+    tooltip = function(owner, m)
+      GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+      GameTooltip:SetText(m.name)
+      GameTooltip:AddLine(format(L["ITEM_TIP_TID"], m.tid), 0.7, 0.7, 0.7)
+      if m.level and m.level > 0 then GameTooltip:AddLine(format(L["MONSTER_TIP_LEVEL"], m.level), 1, 1, 1) end
+      if m.inView then GameTooltip:AddLine(L["MONSTER_TIP_IN_VIEW"], 0.6, 0.8, 1) end
+      GameTooltip:Show()
+    end,
+  })
+  monsters:SetPoint("TOPLEFT", page, "TOPLEFT", LIST_X, -64)
+  local headName = W.Label(page, L["MONSTER"], "GameFontDisableSmall")
+  headName:SetPoint("BOTTOMLEFT", monsters, "TOPLEFT", 8, 2)
+  local headTid = W.Label(page, "TID", "GameFontDisableSmall")
+  headTid:SetPoint("BOTTOMRIGHT", monsters, "TOPRIGHT", -44, 2)
+  headTid:SetJustifyH("RIGHT")
+  local headLevel = W.Label(page, L["LEVEL_SHORT"], "GameFontDisableSmall")
+  headLevel:SetPoint("BOTTOMRIGHT", monsters, "TOPRIGHT", -8, 2)
+  headLevel:SetJustifyH("RIGHT")
+  local monsterNote = W.Label(page, "", "GameFontDisableSmall")
+  monsterNote:SetPoint("TOPLEFT", page, "TOPLEFT", LIST_X, -336)
+  monsterNote:SetWidth(LIST_W)
+  monsterNote:SetWordWrap(true)
+  monsterFrames = { monsterSearch, monsterCount, monsters, headName, headTid, headLevel, monsterNote }
+
+  local function refreshMonsters()
+    local found = ACA:SearchMonsters(monsterSearch:GetText())
+    monsters:SetItems(found)
+    monsterCount:SetText(format(L["MONSTERS_COUNT"], #found))
+    monsterNote:SetText(ACA:MonsterTemplates() and L["MONSTERS_NOTE_SERVER"] or L["MONSTERS_NOTE_SEEN"])
+  end
+  monsterSearch:SetScript("OnTextChanged", function()
+    monsters:Reset({})
+    refreshMonsters()
+  end)
+
   -- Résultat : objets obtenus, du plus fréquent au plus rare, avec leur icône.
   local head = W.Label(page, L["SIM_RESULTS"], "GameFontDisableSmall")
-  head:SetPoint("TOPLEFT", page, "TOPLEFT", LIST_X + 34, -4)
+  head:SetPoint("TOPLEFT", page, "TOPLEFT", LIST_X + 34, -28)
   local headCount = W.Label(page, L["COUNT_SHORT"], "GameFontDisableSmall")
-  headCount:SetPoint("TOPRIGHT", page, "TOPLEFT", LIST_X + LIST_W - 70, -4)
+  headCount:SetPoint("TOPRIGHT", page, "TOPLEFT", LIST_X + LIST_W - 70, -28)
   headCount:SetJustifyH("RIGHT")
   local headRate = W.Label(page, L["PER_100"], "GameFontDisableSmall")
-  headRate:SetPoint("TOPRIGHT", page, "TOPLEFT", LIST_X + LIST_W - 8, -4)
+  headRate:SetPoint("TOPRIGHT", page, "TOPLEFT", LIST_X + LIST_W - 8, -28)
   headRate:SetJustifyH("RIGHT")
   results = W.ItemList(page, LIST_W, ROWS, {
     { width = 56, text = function(item) return tostring(item.count) end },
@@ -124,7 +193,24 @@ ns.RegisterSection("loot", "TAB_LOOT", function(page)
     local k = ACA.sim and ACA.sim.kills
     return { format(L["TIP_SIM_COUNT"], item.count, k or 0, per100(item.count, k)) }
   end)
-  results:SetPoint("TOPLEFT", page, "TOPLEFT", LIST_X, -18)
+  results:SetPoint("TOPLEFT", page, "TOPLEFT", LIST_X, -42)
+  resultFrames = { head, headCount, headRate, results }
+
+  -- Bascule entre les deux vues de droite.
+  function setView(view)
+    page.view = view
+    for _, f in ipairs(monsterFrames) do f:SetShown(view == "monsters") end
+    for _, f in ipairs(resultFrames) do f:SetShown(view == "results") end
+    for v, b in pairs(viewButtons) do
+      if v == view then b:Disable() else b:Enable() end
+    end
+    if view == "monsters" then refreshMonsters() end
+  end
+  local step = math.floor((LIST_W + 6) / 2)
+  viewButtons.monsters = W.Button(page, L["MONSTERS"], step - 6, function() setView("monsters") end)
+  viewButtons.monsters:SetPoint("TOPLEFT", page, "TOPLEFT", LIST_X, 0)
+  viewButtons.results = W.Button(page, L["SIM_RESULTS"], step - 6, function() setView("results") end)
+  viewButtons.results:SetPoint("TOPLEFT", page, "TOPLEFT", LIST_X + step, 0)
 
   local function showSim()
     local s = ACA.sim
@@ -142,9 +228,15 @@ ns.RegisterSection("loot", "TAB_LOOT", function(page)
   end
   ACA:RegisterMessage("ARCHCOREADMIN_SIM", showSim)
   ACA:RegisterMessage("ARCHCOREADMIN_RATES", showRates)
+  -- Un monstre vient d'être rencontré : la liste se met à jour si elle est à l'écran.
+  ACA:RegisterMessage("ARCHCOREADMIN_MONSTERS", function()
+    if page:IsVisible() and page.view == "monsters" then refreshMonsters() end
+  end)
   function page:OnShow()
     showRates()
     showSim()
+    setView(page.view or (ACA.sim and "results" or "monsters"))
   end
   page.tid, page.kills, page.drop, page.gold, page.results, page.summary = tid, kills, drop, gold, results, summary
+  page.monsters, page.monsterSearch, page.monsterName, page.viewButtons = monsters, monsterSearch, monster, viewButtons
 end)

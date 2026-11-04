@@ -6,8 +6,6 @@ local addonName, ns = ...
 local ACA = LibStub("AceAddon-3.0"):GetAddon("ArchCoreAdmin")
 local L = LibStub("AceLocale-3.0"):GetLocale("ArchCoreAdmin")
 
-local REPLY_TIMEOUT = 5
-
 -- « Taux d'expérience », « Taux de butin unique »… → clé de ns.Rates.
 local function rateKey(label)
   label = label:gsub("^d'", ""):gsub("^de ", "")
@@ -27,6 +25,7 @@ local parsers = {
     -- ArchCore cache ses commandes aux comptes de niveau 0 : une commande qu'il gère, refusée
     -- ainsi, veut dire « pas de droits MJ ».
     if c and c.archcore then ACA:SetGMLevel(0, true) end
+    ACA:CommandResult(name, "refused", msg)
     return true
   end,
   function(msg)
@@ -34,14 +33,20 @@ local parsers = {
     if not req then return end
     ACA.db.global.levels[name] = tonumber(req)
     ACA:SetGMLevel(tonumber(mine), true)
+    ACA:CommandResult(name, "refused", msg)
     return true
   end,
   function(msg, p)
-    local name = msg:match("^/(%S+) : .+ Syntaxe : ")
+    -- « /create : objet inconnu : TID 15151. Syntaxe : /create … ». ArchRust ne remet pas encore ces
+    -- messages aux AddOns (ils commencent par « / », voir docs/BESOINS-CLIENT-SERVEUR.md) : sans eux,
+    -- la commande finit en « timeout ».
+    local name, reason = msg:match("^/(%S+) : (.+)%. Syntaxe : ")
     if not name then return end
     -- La sonde « /SetExp » sans argument : le niveau suffit, seuls les arguments manquent.
-    if p and p.probe and ACA.gmLevel == nil then
-      ACA:SetGMLevel(ACA:RequiredLevel(name), false)
+    if p and p.probe then
+      if ACA.gmLevel == nil then ACA:SetGMLevel(ACA:RequiredLevel(name), false) end
+    else
+      ACA:CommandResult(name, "refused", reason)
     end
     return true
   end,
@@ -68,6 +73,7 @@ local parsers = {
     if not item then return end
     ACA.db.global.itemNames[tonumber(tid)] = item
     ACA:SendMessage("ARCHCOREADMIN_ITEMS")
+    ACA:CommandResult(msg:find("ajouté", 1, true) and "additem" or "create", "ok", msg)
     return true
   end,
   function(msg)
@@ -84,6 +90,7 @@ local parsers = {
       gold = tonumber(gold), total = tonumber(total), kinds = kinds, items = {},
       expected = math.min(kinds, ns.SIMLOOT_LINES) + (kinds > ns.SIMLOOT_LINES and 1 or 0),
     }
+    ACA:LearnMonster(ACA.sim.tid, monster, ACA.sim.level > 0 and ACA.sim.level or nil)
     ACA:SendMessage("ARCHCOREADMIN_SIM")
     return true
   end,
@@ -126,8 +133,7 @@ local parsers = {
 -- Filtre CHAT_MSG_SYSTEM : rend `true` pour masquer le message dans la discussion.
 function ACA:OnSystemMessage(msg)
   if type(msg) ~= "string" then return false end
-  local now, pending = GetTime(), self.pending
-  while pending[1] and now - pending[1].time > REPLY_TIMEOUT do tremove(pending, 1) end
+  local pending = self.pending
   local p = pending[1]
   local recognized, continued = false, false
   for _, parse in ipairs(parsers) do
@@ -148,7 +154,8 @@ function ACA:OnSystemMessage(msg)
   if p then tremove(pending, 1) end
   if p and p.probe then
     self.probing = nil
-    if self.gmLevel == nil then self:SetGMLevel(1, false) end
+    -- « /GetExp » a répondu après le silence de « /SetExp » : le niveau suffisait pour /SetExp.
+    if self.gmLevel == nil then self:SetGMLevel(p.probe == "get" and self:RequiredLevel("SetExp") or 1, false) end
     self:Print(self:LevelText())
     return true
   end

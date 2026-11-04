@@ -43,7 +43,8 @@ données de modèles 3D). Son fonctionnement se résume en cinq mécanismes :
 | crochet `ChatFrame:AddMessage` | filtres `ChatFrame_AddMessageEventFilter` : ArchCore répond à chaque commande par **un** message de discussion de type système, qu'ArchRust remet en `CHAT_MSG_SAY` **sans auteur** (lignes `[?]`) ; `CHAT_MSG_SYSTEM` est écouté aussi |
 | `UnitIsPlayer("target")` | sous ArchRust, `UnitIsPlayer` ne vaut que pour soi : un autre personnage se reconnaît à son CID (< `0x40000000` chez ArchCore ; PNJ à partir de `0x40000000`, monstres de `0x50000000`) |
 | niveau de sécurité connu du client | le client ne donne pas le niveau MJ aux AddOns : l'AddOn envoie `/SetExp` sans argument (sans effet) et lit la réponse (`Commande inconnue` → 0, `Niveau MJ 3 requis… (le vôtre : 2)` → 2, erreur de syntaxe → 3 ou plus) |
-| `.lookup item` (recherche par nom) | absente d'ArchCore : le **catalogue des objets du client** (`ArchRust.SearchItems`, `ArchRust.GetItemTemplate`, `GetItemIcon` : ItemTemplateAll.ini, icônes du jeu) sert à choisir les objets ; sans lui (client plus ancien), objets désignés par TID, nom **appris** dans la réponse de `/create` ou `/additem`, favoris |
+| `.lookup item` (recherche par nom) | absente d'ArchCore : le **catalogue des objets du client** (`ArchRust.GetItemTemplate`, `GetItemIcon` : ItemTemplateAll.ini, icônes du jeu) sert à choisir les objets ; sans lui (client plus ancien), objets désignés par TID, nom **appris** dans la réponse de `/create` ou `/additem`, favoris |
+| `.lookup creature` | absente aussi : liste des monstres **déjà rencontrés** (`ArchRust.GetUnits()`, ciblés, simulés), retenue d'une session à l'autre |
 | `.account onlinelist` | absente : liste des personnages **en vue** (`ArchRust.GetUnits()`) |
 | AceGUI / AceConfig, XML, FrameLib | non fournis par ArchRust : frames créées en Lua (`Widgets.lua`) ; les ScrollFrame ne découpant pas leur contenu, les listes défilent par décalage des données (molette) |
 | icône de mini-carte | bouton « MJ » déplaçable + raccourci clavier (`ArchRust.SetBinding`) |
@@ -54,8 +55,8 @@ Les onglets reprennent ceux d'AzerothAdmin pour lesquels ArchCore a des commande
 |---|---|
 | **MJ** | niveau MJ détecté, `/invincible`, `/speed` (vitesse ×1 à ×10), `/recast`, `/questreset`, commande libre avec historique, catalogue de toutes les commandes, réglages |
 | **Joueurs** | `/kill`, `/level`, `/money`, `/rename_char`, `/chatban` (5 min, 15 min, 1 h, 1 jour, durée libre, lever) sur un nom saisi, ciblé ou choisi parmi les joueurs en vue |
-| **Objets** | objets du jeu affichés avec leur icône, leur nom, leur TID et leur niveau requis, par catégorie ou par recherche (catalogue d'ArchRust), `/create "nom" <TID> <quantité> <0\|1>`, `/additem <TID> [quantité]` (pour soi), favoris |
-| **Butin** | simulateur de farm et de butin : `/simloot <TID du monstre> <nombre> [taux de butin] [taux d'or]`, objets obtenus listés avec leur icône, leur quantité et leur fréquence |
+| **Objets** | objets du jeu affichés avec leur icône, leur nom, leur TID et leur niveau requis, par catégorie, par recherche et par classe (catalogue d'ArchRust), `/create "nom" <TID> <quantité> <0\|1>`, `/additem <TID> [quantité]` (pour soi), issue de la commande expliquée, favoris |
+| **Butin** | simulateur de farm et de butin : `/simloot <TID du monstre> <nombre> [taux de butin] [taux d'or]`, monstre choisi dans une liste avec recherche, objets obtenus listés avec leur icône, leur quantité et leur fréquence |
 | **Téléport** | `/move x,z` vers des coordonnées, sa position, celle de la cible ou un point enregistré (villages de départ d'ArchCore fournis) |
 | **Serveur** | taux `/GetExp`… `/SetPrestigeRate`, bonus de discussion, `/announce_restart` (et annulation) |
 | **Journal** | commandes envoyées et réponses du serveur, horodatées, 300 lignes par personnage |
@@ -87,9 +88,14 @@ envoyables par la commande libre.
   bouton MJ, le raccourci, `/aca`) la rétablit.
 - `/aca gm|players|items|loot|teleport|server|log` : ouvre un onglet.
 - **Objets** : choisir une catégorie, taper une partie du nom ou un TID, cliquer un objet (molette
-  pour défiler, survol pour le détail) ; le TID, le nom du favori et l'aperçu se remplissent.
-- **Butin** : TID du monstre (ou bouton **Cible** sur un monstre ciblé), nombre de monstres (1 à
-  10 000), taux de butin et d'or (vides : ceux du serveur), **Simuler**. Le serveur tire le butin de
+  pour défiler, survol pour le détail) ; le TID, le nom du favori et l'aperçu se remplissent. Sous les
+  boutons, une ligne dit ce qu'il est advenu de la commande : objet donné, refus expliqué, ou silence du
+  serveur avec ses causes possibles. Le bouton **Classe** (clic, molette) filtre par classe si le client
+  donne les classes des objets.
+- **Butin** : choisir le monstre dans la vue **Monstres** (recherche par nom ou TID, clic), ou le désigner
+  par son TID ou le bouton **Cible**. La liste contient les monstres déjà rencontrés, ceux en vue
+  d'abord. Puis nombre de monstres (1 à 10 000), taux de butin et d'or (vides : ceux du serveur),
+  **Simuler**. Le serveur tire le butin de
   chaque monstre comme à sa mort (or, groupes de butin, objets propres au monstre), sans rien créer ;
   le niveau du tueur est celui de votre personnage. Les 40 objets les plus fréquents sont listés,
   avec leur quantité et leur fréquence pour 100 monstres ; la réponse complète est dans le Journal.
@@ -103,8 +109,8 @@ envoyables par la commande libre.
   qui affiche la commande exacte.
 
 Réglages enregistrés dans `saved-variables/ArchCoreAdmin.lua` : profil (réglages, positions),
-global (points de téléportation, objets favoris et noms appris, niveaux requis appris), par
-personnage (journal, historique des commandes libres).
+global (points de téléportation, objets favoris et noms appris, monstres rencontrés, niveaux requis
+appris), par personnage (journal, historique des commandes libres).
 
 ## 5. Organisation du code
 
@@ -112,10 +118,11 @@ personnage (journal, historique des commandes libres).
 ArchCoreAdmin/
   ArchCoreAdmin.toc   manifeste (ordre de chargement, SavedVariables)
   Locales.lua         textes anglais (par défaut) et français (AceLocale)
-  Catalog.lua         catalogue des commandes : nom, niveau, arguments, confirmation
-  Core.lua            objet AddOn (Ace3), construction et envoi des commandes, niveau MJ,
-                      catalogue des objets d'ArchRust, /aca
-  Replies.lua         lecture des réponses d'ArchCore (niveau, taux, objets, invincibilité,
+  Catalog.lua         catalogue des commandes : nom, niveau, arguments, confirmation ; classes et
+                      parties du corps
+  Core.lua            objet AddOn (Ace3), construction et envoi des commandes, issue des commandes,
+                      niveau MJ, catalogue des objets d'ArchRust, monstres connus, /aca
+  Replies.lua         lecture des réponses d'ArchCore (niveau, taux, objets, refus, invincibilité,
                       simulation de butin sur plusieurs lignes)
   Widgets.lua         boutons, champs, cases, listes à la molette, icônes et listes d'objets ;
                       grisage selon le niveau
@@ -123,6 +130,7 @@ ArchCoreAdmin/
   media/logo.png      logo de l'en-tête (512 × 228, fond transparent)
   Sections/*.lua      un fichier par onglet (Loot.lua : simulateur de butin)
 tests/banc-essai/     banc d'essai Rust (moteur d'AddOns d'ArchRust, sans affichage)
+docs/BESOINS-CLIENT-SERVEUR.md   ce que le panneau attend d'ArchRust et d'ArchCore
 ```
 
 ### Ajouter une commande quand ArchCore en gère une nouvelle
@@ -150,6 +158,16 @@ tests/banc-essai/     banc d'essai Rust (moteur d'AddOns d'ArchRust, sans affich
   dans les 5 s qui suivent une commande peut lui être attribué.
 - Le choix visuel des objets demande un client ArchRust qui donne le catalogue des objets aux
   AddOns ; sinon l'onglet Objets revient à la saisie du TID. Les noms sont ceux du client (anglais).
+- Trois manques d'ArchRust, décrits dans [`docs/BESOINS-CLIENT-SERVEUR.md`](docs/BESOINS-CLIENT-SERVEUR.md) ;
+  le panneau s'en sert dès qu'ils sont comblés :
+  - les refus du serveur (messages en `/`) n'arrivent pas aux AddOns : au bout de 5 secondes, le panneau
+    donne les causes possibles sans pouvoir dire laquelle est la bonne ;
+  - le catalogue vient des fichiers du client, ajouts d'Archonia compris, et ne dit ni les objets absents
+    du serveur, ni les classes, ni les emplacements, ni les statistiques : pas de filtre de classe, et
+    l'info-bulle s'arrête à la partie du corps ;
+  - pas de liste des monstres : seuls ceux déjà rencontrés sont proposés.
+- Le catalogue est lu en une fois à la première ouverture de l'onglet Objets (environ 0,6 s et 14 Mo pour
+  23 000 objets, mesuré au banc).
 - `/simloot` liste 40 sortes d'objets au plus (les plus fréquentes) ; les autres sont résumées en
   une ligne. 10 000 monstres au plus par simulation.
 
@@ -163,14 +181,17 @@ cargo run --release
 Le banc charge l'AddOn dans `archrust-addons`, le vrai moteur Lua d'ArchRust, pris dans le dépôt
 [BlaMacfly/ArchRust](https://github.com/BlaMacfly/ArchRust) (une copie locale se branche par
 `[patch]`, voir `tests/banc-essai/Cargo.toml`). Il tourne sur GitHub Actions à chaque envoi et
-vérifie 98 points : chargement sans erreur, sonde et lecture des trois réponses possibles,
-construction de chaque type d'argument et refus des entrées invalides, grisage selon le niveau,
+vérifie 152 points : chargement sans erreur, sonde et lecture des trois réponses possibles, sonde sans
+réponse, construction de chaque type d'argument et refus des entrées invalides, grisage selon le niveau,
 confirmation au clic, lecture des taux et des noms d'objets, discussion des joueurs non confondue
 avec les réponses, reconnaissance des personnages ciblés, clics à la souris sur les boutons, absence
 de chevauchement et de débordement dans les sept onglets, catalogue des objets (catégories,
-recherche, icônes, choix à la souris, favoris), simulation de butin (commande envoyée, en-tête et
-lignes lues, liste et résumé), réduction et rétablissement de la fenêtre, repli sans catalogue,
-SavedVariables.
+recherche, icônes, choix à la souris, favoris, info-bulle), issue de `/create` et `/additem` (objet donné,
+refus expliqués, silence du serveur), liste et recherche des monstres, simulation de butin (commande
+envoyée, en-tête et lignes lues, liste et résumé, refus et silence), réduction et rétablissement de la
+fenêtre, repli sans catalogue, SavedVariables. Les champs qu'ArchRust ne donne pas encore (objets absents
+du serveur, classes, emplacements, statistiques, liste des monstres) sont simulés en Lua : leur rendu est
+vérifié, pas leur lecture réelle.
 
 **Essai en jeu (2026-10-22)** : client ArchRust contre ArchCore (Rust) et MariaDB locaux, compte
 MJ de niveau 3. Niveau détecté (« 3 ou plus ») et réponse de la sonde masquée, sept taux lus,

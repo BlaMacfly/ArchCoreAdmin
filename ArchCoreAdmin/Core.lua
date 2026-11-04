@@ -28,7 +28,7 @@ local defaults = {
     tab = "gm",
     showUnsupported = false,
   },
-  global = { teleports = {}, items = {}, itemNames = {}, levels = {} },
+  global = { teleports = {}, items = {}, itemNames = {}, levels = {}, monsters = {} },
   char = { log = {}, history = {} },
 }
 
@@ -50,6 +50,8 @@ function ACA:OnInitialize()
   self.pending = {}
   self.rates = {}
   self.widgets = {}
+  -- Issue d'une commande pour l'onglet qui l'a envoyée : `resultHandlers[nom](kind, text)`.
+  self.resultHandlers = {}
   self:RegisterChatCommand("aca", "SlashCommand")
   self:RegisterChatCommand("archcoreadmin", "SlashCommand")
 end
@@ -57,6 +59,7 @@ end
 function ACA:OnEnable()
   self:RegisterEvent("PLAYER_ENTERING_WORLD")
   self:RegisterEvent("PLAYER_TARGET_CHANGED", "UpdateWidgets")
+  self:RegisterEvent("NAME_PLATE_UNIT_ADDED")
   -- ArchCore répond par un message de discussion de type « système » (AGPMCHATTING), qu'ArchRust
   -- remet en CHAT_MSG_SAY sans auteur ; CHAT_MSG_SYSTEM est écouté aussi au cas où le client les
   -- distinguerait un jour. Le filtre peut masquer la réponse.
@@ -88,17 +91,24 @@ end
 --   « Niveau MJ 3 requis pour /SetExp (le vôtre : N) » → niveau N exact ;
 --   « /SetExp : argument manquant. Syntaxe : … »        → niveau 3 ou plus.
 -- La demande figure dans le journal MJ du serveur, comme toute commande.
+-- ArchRust ne remet pas aux AddOns les messages qui commencent par « / » : la troisième réponse se
+-- perd, et un compte sans droits n'en reçoit aucune. Le silence est donc levé par « /GetExp » (niveau
+-- 1, réponse « Taux d'expérience : … ») : une réponse veut dire que le niveau suffisait pour /SetExp.
 function ACA:ProbeLevel()
   self.probing = true
   self:SetGMLevel(nil, nil)
-  self:SendLine("/SetExp", "SetExp", { probe = true })
-  self:ScheduleTimer(function()
-    if self.probing then
-      self.probing = nil
-      self:Print(L["PROBE_NO_REPLY"])
-      self:UpdateWidgets()
-    end
-  end, REPLY_TIMEOUT)
+  self:SendLine("/SetExp", "SetExp", { probe = "set" })
+end
+
+function ACA:OnProbeSilence(entry)
+  if not self.probing then return end
+  if entry.probe == "set" then
+    self:SendLine("/GetExp", "GetExp", { probe = "get" })
+  else
+    self.probing = nil
+    self:Print(L["PROBE_NO_REPLY"])
+    self:UpdateWidgets()
+  end
 end
 
 function ACA:SetGMLevel(level, exact)
@@ -223,10 +233,28 @@ end
 function ACA:SendLine(line, name, opts)
   line = line:gsub("[\r\n]+", " ")
   opts = opts or {}
-  tinsert(self.pending, { name = name, line = line, time = GetTime(), probe = opts.probe })
+  local entry = { name = name, line = line, time = GetTime(), probe = opts.probe }
+  tinsert(self.pending, entry)
+  self:ScheduleTimer("OnReplyTimeout", REPLY_TIMEOUT, entry)
   if not opts.probe then self:AddLog(">", line, name) end
   RunMacroText(line)
   self:SendMessage("ARCHCOREADMIN_SENT", name, line)
+end
+
+-- Toujours en attente au bout du délai : pas de réponse, et rien n'en dit la raison (voir
+-- OnSystemMessage et docs/BESOINS-CLIENT-SERVEUR.md : les refus du serveur n'arrivent pas aux AddOns).
+function ACA:OnReplyTimeout(entry)
+  if not tIndexOf(self.pending, entry) then return end
+  tDeleteItem(self.pending, entry)
+  if entry.probe then return self:OnProbeSilence(entry) end
+  self:AddLog("!", format(L["NO_REPLY"], entry.line), entry.name)
+  self:CommandResult(entry.name, "timeout", entry.line)
+end
+
+-- Issue d'une commande : kind = "ok", "refused" (text : raison donnée par le serveur) ou "timeout".
+function ACA:CommandResult(name, kind, text)
+  local handler = self.resultHandlers[name]
+  if handler then handler(kind, text) end
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -242,6 +270,7 @@ function ACA:AddLog(kind, text, name)
 end
 
 function ACA:Error(text)
+  self.lastError = text
   self:Print("|cffff5050" .. text .. "|r")
   self:AddLog("!", text)
 end
@@ -277,6 +306,10 @@ end
 -- ArchRust donne aux AddOns le catalogue des objets d'ItemTemplateAll.ini (ArchRust.SearchItems,
 -- ArchRust.GetItemTemplate, GetItemIcon : nom, icône, niveau requis, catégorie). Un client plus
 -- ancien ne l'a pas : l'AddOn revient alors à la saisie du TID et aux noms appris du serveur.
+-- Ce fichier est celui du client, ajouts d'Archonia compris : il contient des objets que le serveur
+-- ne connaît pas. Un client qui lit aussi les tables du serveur (server-data/) ajoute aux modèles les
+-- champs `server`, `classes`, `races`, `minSocket`, `maxSocket` et `stats`, décrits dans
+-- docs/BESOINS-CLIENT-SERVEUR.md ; le panneau s'en sert dès qu'ils sont là.
 function ACA:HasItemCatalog()
   local ar = _G.ArchRust
   if type(ar) ~= "table" or type(ar.SearchItems) ~= "function" or type(ar.GetItemTemplate) ~= "function"
@@ -303,17 +336,80 @@ function ACA:ItemName(tid)
   return (t and t.name) or self.db.global.itemNames[tid]
 end
 
--- Objets du catalogue : `text` (nom ou début de TID), `category` (nil = toutes), `max` au plus.
--- Rend la liste, triée par niveau requis puis TID, et le nombre total trouvé.
-function ACA:SearchItems(text, category, max)
-  if not self:HasItemCatalog() then return {}, 0 end
-  local ok, list, total = pcall(ArchRust.SearchItems, text or "", category, max)
-  if not ok or type(list) ~= "table" then return {}, 0 end
-  table.sort(list, function(a, b)
+-- Plus grand TID cherché dans le catalogue (la recherche s'arrête dès que tous les modèles sont vus).
+local MAX_ITEM_TID = 1048576
+
+-- Tous les modèles du catalogue, triés par niveau requis puis TID ; lu une fois, à la première
+-- recherche. ArchRust.SearchItems plafonne à 5 000 résultats, par TID croissant : le filtre et le tri
+-- se font ici, sur l'ensemble. Note au passage ce que le client sait des tables du serveur.
+function ACA:ItemIndex()
+  if self.itemIndex then return self.itemIndex end
+  local index, total = {}, ArchRust.GetNumItemTemplates()
+  self.itemServerCount, self.itemDetails = nil, false
+  local tid = 0
+  while #index < total and tid <= MAX_ITEM_TID do
+    local t = ArchRust.GetItemTemplate(tid)
+    if t then
+      t.stats = nil
+      t.search = (t.name or ""):lower()
+      index[#index + 1] = t
+      if t.server ~= nil then self.itemServerCount = (self.itemServerCount or 0) + (t.server and 1 or 0) end
+      if type(t.classes) == "table" then self.itemDetails = true end
+    end
+    tid = tid + 1
+  end
+  table.sort(index, function(a, b)
     if (a.level or 0) ~= (b.level or 0) then return (a.level or 0) < (b.level or 0) end
     return a.tid < b.tid
   end)
-  return list, total or #list
+  self.itemIndex = index
+  return index
+end
+
+local function contains(list, value)
+  for _, v in ipairs(list) do
+    if v == value then return true end
+  end
+  return false
+end
+
+-- Bijoux et montures sans restriction se portent par tous ; les armures et armes sans restriction
+-- sont l'équipement des monstres et des PNJ, et les consommables ne sont pas réservés à une classe.
+local UNIVERSAL_KIND = { [8] = true, [16] = true, [32] = true }
+
+-- L'objet convient-il à `class`, élément de ns.CLASSES ? (Colonnes Race et Class des tables du serveur.)
+function ACA:ItemFitsClass(t, class)
+  if not class then return true end
+  local races, classes = t.races or {}, t.classes or {}
+  if #races == 0 and #classes == 0 then return UNIVERSAL_KIND[t.kind] == true end
+  return (#races == 0 or contains(races, class.race)) and (#classes == 0 or contains(classes, class.class))
+end
+
+-- Noms des classes auxquelles l'objet est réservé ; nil s'il n'est réservé à aucune.
+function ACA:ItemClassNames(t)
+  if #(t.races or {}) == 0 and #(t.classes or {}) == 0 then return nil end
+  local names = {}
+  for _, c in ipairs(ns.CLASSES) do
+    if self:ItemFitsClass(t, c) then names[#names + 1] = c.name end
+  end
+  return #names < #ns.CLASSES and #names > 0 and names or nil
+end
+
+-- Objets du catalogue, dans l'ordre de ItemIndex : `text` (nom ou début de TID), `category` (nil =
+-- toutes), `class` (élément de ns.CLASSES, nil = toutes). Ceux que le serveur n'a pas sont écartés.
+function ACA:SearchItems(text, category, class)
+  if not self:HasItemCatalog() then return {} end
+  local needle = strtrim(text or ""):lower()
+  local numeric = needle:match("^%d+$") ~= nil
+  local list = {}
+  for _, t in ipairs(self:ItemIndex()) do
+    if t.server ~= false and (not category or t.category == category)
+      and (needle == "" or t.search:find(needle, 1, true) or (numeric and tostring(t.tid):sub(1, #needle) == needle))
+      and self:ItemFitsClass(t, class) then
+      list[#list + 1] = t
+    end
+  end
+  return list
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -336,12 +432,93 @@ function ACA:TargetPlayerName()
   if isCharacterCid(guid and tonumber(guid:match("(%d+)$"))) then return UnitName("target") end
 end
 
--- Monstre ciblé : TID (pris dans le GUID « Unit-<tid>-<cid> ») et nom, ou nil.
+-- TID d'un monstre d'après son GUID (« Unit-<tid>-<cid> »), ou nil.
 local MONSTER_CID_BASE = 0x50000000
+local function monsterTid(guid)
+  local tid, cid = (guid or ""):match("^Unit%-(%d+)%-(%d+)$")
+  if tid and tonumber(cid) >= MONSTER_CID_BASE then return tonumber(tid) end
+end
+
+-- Monstre ciblé : TID et nom, ou nil.
 function ACA:TargetMonster()
   if not UnitExists("target") then return end
-  local tid, cid = (UnitGUID("target") or ""):match("^Unit%-(%d+)%-(%d+)$")
-  if tid and tonumber(cid) >= MONSTER_CID_BASE then return tonumber(tid), UnitName("target") end
+  local tid = monsterTid(UnitGUID("target"))
+  if not tid then return end
+  local name = UnitName("target")
+  self:LearnMonster(tid, name)
+  return tid, name
+end
+
+-- Monstres connus du panneau, mémorisés d'une session à l'autre : ceux vus en jeu, ciblés ou simulés.
+-- `level` : seulement celui donné par /simloot (ArchRust ne donne pas le niveau des unités).
+function ACA:LearnMonster(tid, name, level)
+  if not tid or not name or name == "" then return end
+  local known = self.db.global.monsters
+  local m = known[tid]
+  if m and m.name == name and (not level or m.level == level) then return end
+  known[tid] = { name = name, level = level or (m and m.level) }
+  self:SendMessage("ARCHCOREADMIN_MONSTERS")
+end
+
+function ACA:NAME_PLATE_UNIT_ADDED(_, token, guid)
+  local tid = monsterTid(guid)
+  if tid then self:LearnMonster(tid, UnitName(token)) end
+end
+
+-- Liste complète des monstres, si le client la donne (voir docs/BESOINS-CLIENT-SERVEUR.md).
+function ACA:MonsterTemplates()
+  if self.monsterTemplates == nil then
+    local get = _G.ArchRust and ArchRust.GetMonsterTemplates
+    local ok, list = pcall(get or error)
+    self.monsterTemplates = ok and type(list) == "table" and list or false
+  end
+  return self.monsterTemplates or nil
+end
+
+function ACA:MonsterName(tid)
+  tid = tonumber(tid)
+  local m = tid and self.db.global.monsters[tid]
+  if m then return m.name end
+  for _, t in ipairs(self:MonsterTemplates() or {}) do
+    if t.tid == tid then return t.name end
+  end
+end
+
+-- Monstres à proposer, ceux en vue d'abord, puis par nom : { tid, name, level?, inView? }. `text` : une
+-- partie du nom ou le début du TID.
+function ACA:SearchMonsters(text)
+  local inView = {}
+  for _, u in ipairs(ArchRust.GetUnits() or {}) do
+    local tid = monsterTid(u.guid)
+    if tid then
+      self:LearnMonster(tid, u.name)
+      inView[tid] = true
+    end
+  end
+  local byTid = {}
+  for _, t in ipairs(self:MonsterTemplates() or {}) do
+    byTid[t.tid] = { tid = t.tid, name = t.name, level = t.level }
+  end
+  for tid, m in pairs(self.db.global.monsters) do
+    local entry = byTid[tid]
+    if entry then entry.level = entry.level or m.level
+    else byTid[tid] = { tid = tid, name = m.name, level = m.level } end
+  end
+  local needle = strtrim(text or ""):lower()
+  local numeric = needle:match("^%d+$") ~= nil
+  local list = {}
+  for tid, m in pairs(byTid) do
+    if needle == "" or m.name:lower():find(needle, 1, true) or (numeric and tostring(tid):sub(1, #needle) == needle) then
+      m.inView = inView[tid]
+      list[#list + 1] = m
+    end
+  end
+  table.sort(list, function(a, b)
+    if (a.inView or false) ~= (b.inView or false) then return a.inView or false end
+    if a.name ~= b.name then return a.name < b.name end
+    return a.tid < b.tid
+  end)
+  return list
 end
 
 -- Personnages en vue, sans soi, triés par nom.

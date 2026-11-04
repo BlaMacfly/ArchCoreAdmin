@@ -163,15 +163,71 @@ function W.ItemIcon(parent, size)
   return f
 end
 
--- Info-bulle d'un objet : nom, TID, niveau requis, catégorie, pile ; `extra` : lignes en plus.
+-- Caractéristiques des modèles (`stats`) : colonnes des tables du serveur → libellés de Locales.lua.
+-- « Linghtning » : orthographe de la colonne. Les valeurs nulles ou absentes ne s'affichent pas.
+local ELEMENTS = { "Magic", "Water", "Fire", "Earth", "Air", "Poison", "Ice", "Linghtning" }
+local ATTACK_STATS = {
+  { "ATK Speed", "STAT_ATK_SPEED" }, { "ATK Range", "STAT_ATK_RANGE" }, { "Physical_ATKRate", "STAT_PHYS_RATE" },
+  { "Magic_ATKRate", "STAT_MAGIC_RATE" },
+}
+local DEFENSE_STATS = {
+  { "Physical_Defense_Point", "STAT_PHYS_DEF" }, { "PDR", "STAT_PDR" }, { "BlockRate", "STAT_BLOCK" },
+}
+local BONUS_STATS = {
+  { "CON_Bonus_Point", "STAT_CON" }, { "STR_Bonus_Point", "STAT_STR" }, { "DEX_Bonus_Point", "STAT_DEX" },
+  { "INT_Bonus_Point", "STAT_INT" }, { "Wis_Bonus_Point", "STAT_WIS" }, { "HP", "STAT_HP" }, { "SP", "STAT_SP" },
+  { "MP", "STAT_MP" }, { "Hp_Buff", "STAT_HP_BUFF" }, { "Mp_Buff", "STAT_MP_BUFF" }, { "Attack_Buff", "STAT_ATK_BUFF" },
+  { "Defense_Buff", "STAT_DEF_BUFF" }, { "Run_Buff", "STAT_RUN_BUFF" }, { "Rank", "STAT_RANK" }, { "DUR", "STAT_DUR" },
+}
+
+local function statLines(s)
+  local lines = {}
+  local function add(label, value) lines[#lines + 1] = format(L["STAT_LINE"], label, value) end
+  local function range(minKey, maxKey, label)
+    local lo, hi = s[minKey] or 0, s[maxKey] or 0
+    if lo ~= 0 or hi ~= 0 then add(label, format("%g - %g", lo, hi)) end
+  end
+  local function singles(list)
+    for _, e in ipairs(list) do
+      local v = s[e[1]]
+      if v and v ~= 0 then add(L[e[2]], format("%g", v)) end
+    end
+  end
+  range("Physical_Min_Damage", "Physical_Max_Damage", L["STAT_PHYS_DMG"])
+  for _, e in ipairs(ELEMENTS) do range(e .. "_Min_Damage", e .. "_Max_Damage", format(L["STAT_DMG_OF"], L["ELEM_" .. e])) end
+  singles(ATTACK_STATS)
+  singles(DEFENSE_STATS)
+  for _, e in ipairs(ELEMENTS) do
+    local point, rate = s[e .. "_Defense_Point"], s[e .. "_Defense_Rate"]
+    if point and point ~= 0 then add(format(L["STAT_DEF_OF"], L["ELEM_" .. e]), format("%g", point)) end
+    if rate and rate ~= 0 then add(format(L["STAT_RES_OF"], L["ELEM_" .. e]), format("%g", rate)) end
+  end
+  singles(BONUS_STATS)
+  return lines
+end
+
+-- Info-bulle d'un objet : nom, TID, niveau requis, catégorie, partie du corps, pile, puis, si le client
+-- les donne, classes, emplacements et caractéristiques ; `extra` : lignes en plus.
 function W.ItemTooltip(owner, item, extra)
   if not item then return end
   local t = ACA:ItemTemplate(item.tid) or item
   GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
   GameTooltip:SetText(t.name or item.name or ACA:ItemName(item.tid) or ("TID " .. item.tid))
   GameTooltip:AddLine(format(L["ITEM_TIP_TID"], item.tid), 0.7, 0.7, 0.7)
+  if t.server == false then GameTooltip:AddLine(L["ITEM_TIP_NOT_ON_SERVER"], 1, 0.35, 0.35) end
   if t.level and t.level > 0 then GameTooltip:AddLine(format(L["ITEM_TIP_LEVEL"], t.level), 1, 1, 1) end
   if t.category then GameTooltip:AddLine(L["CAT_" .. t.category], 0.85, 0.7, 0.4) end
+  local part = ns.ITEM_PARTS[t.part]
+  if part then GameTooltip:AddLine(format(L["ITEM_TIP_PART"], L[part]), 0.85, 0.7, 0.4) end
+  local classes = ACA:ItemClassNames(t)
+  if classes then GameTooltip:AddLine(format(L["ITEM_TIP_CLASSES"], table.concat(classes, ", ")), 0.85, 0.7, 0.4) end
+  local lo, hi = t.minSocket or 0, t.maxSocket or 0
+  if hi > lo then
+    GameTooltip:AddLine(format(L["ITEM_TIP_SOCKETS_RANGE"], lo, hi), 0.6, 0.8, 1)
+  elseif hi > 0 then
+    GameTooltip:AddLine(format(L["ITEM_TIP_SOCKETS"], hi), 0.6, 0.8, 1)
+  end
+  for _, line in ipairs(t.stats and statLines(t.stats) or {}) do GameTooltip:AddLine(line, 1, 1, 1) end
   if t.stack and t.stack > 1 then GameTooltip:AddLine(format(L["ITEM_TIP_STACK"], t.stack), 0.7, 0.7, 0.7) end
   for _, line in ipairs(extra or {}) do GameTooltip:AddLine(line, 0.6, 0.8, 1) end
   GameTooltip:Show()
@@ -182,8 +238,11 @@ end
 -- au clic ; molette pour défiler (décalage des données, comme W.List). Les éléments sont des tables
 -- `{ tid, name?, icon? … }` : nom et icône manquants sont cherchés dans le catalogue.
 -- `tipExtra(item)` : lignes ajoutées à l'info-bulle.
-function W.ItemList(parent, width, rows, columns, onSelect, tipExtra)
+-- `opts.noIcon` : liste d'autre chose que des objets (monstres), sans icône ; `opts.tooltip(owner, item)`
+-- remplace alors l'info-bulle d'objet.
+function W.ItemList(parent, width, rows, columns, onSelect, tipExtra, opts)
   local ROW = 26
+  opts = opts or {}
   local list = W.Panel(parent)
   list:SetSize(width, rows * ROW + 8)
   list.items, list.offset, list.rows = {}, 0, {}
@@ -196,11 +255,16 @@ function W.ItemList(parent, width, rows, columns, onSelect, tipExtra)
     r:SetBackdropColor(0, 0, 0, 0)
     r:SetPoint("TOPLEFT", list, "TOPLEFT", 4, -4 - (i - 1) * ROW)
     r:SetSize(width - 8, ROW)
-    r.icon = W.ItemIcon(r, ROW - 4)
-    r.icon:SetPoint("LEFT", r, "LEFT", 2, 0)
     r.text = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r.text:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
-    r.text:SetWidth(width - 8 - (ROW - 4) - 8 - right)
+    if opts.noIcon then
+      r.text:SetPoint("LEFT", r, "LEFT", 4, 0)
+      r.text:SetWidth(width - 8 - 4 - right)
+    else
+      r.icon = W.ItemIcon(r, ROW - 4)
+      r.icon:SetPoint("LEFT", r, "LEFT", 2, 0)
+      r.text:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
+      r.text:SetWidth(width - 8 - (ROW - 4) - 8 - right)
+    end
     r.text:SetJustifyH("LEFT")
     r.text:SetWordWrap(false)
     r.cols = {}
@@ -224,7 +288,12 @@ function W.ItemList(parent, width, rows, columns, onSelect, tipExtra)
     end)
     r:SetScript("OnEnter", function(self)
       local item = list.items[list.offset + i]
-      if item then W.ItemTooltip(self, item, tipExtra and tipExtra(item)) end
+      if not item then return end
+      if opts.tooltip then
+        opts.tooltip(self, item)
+      else
+        W.ItemTooltip(self, item, tipExtra and tipExtra(item))
+      end
     end)
     r:SetScript("OnLeave", hideTip)
     list.rows[i] = r
@@ -251,7 +320,7 @@ function W.ItemList(parent, width, rows, columns, onSelect, tipExtra)
       local item = self.items[index]
       r:SetShown(item ~= nil)
       if item then
-        r.icon:SetItem(item.tid, item.icon)
+        if r.icon then r.icon:SetItem(item.tid, item.icon) end
         r.text:SetText(item.name or ACA:ItemName(item.tid) or "?")
         for c, fs in ipairs(r.cols) do fs:SetText(columns[c].text(item) or "") end
         r:SetBackdropColor(0.85, 0.62, 0.25, index == self.selected and 0.35 or 0)

@@ -1,10 +1,12 @@
 -- Onglet Objets (la recherche d'objets d'AzerothAdmin) : /create "nom" <TID> <quantité> <0|1>,
 -- et /additem <TID> [quantité] pour soi.
 -- ArchCore n'a pas de commande de recherche : les objets se choisissent dans le catalogue du client
--- (ArchRust.SearchItems : nom, icône, niveau requis, catégorie), par catégorie et par nom, ou se
+-- (ArchRust.GetItemTemplate : nom, icône, niveau requis, catégorie), par catégorie et par nom, ou se
 -- désignent par leur TID. Sans ce catalogue (client plus ancien), seuls la saisie du TID et les
 -- favoris restent ; le nom de l'objet est alors appris dans la réponse du serveur (« 5 × Potion de
 -- vie (TID 190) donné(s) »).
+-- Sous les boutons, une ligne dit ce qu'il est advenu de la commande : objet donné, refus expliqué, ou
+-- silence du serveur (les refus n'arrivent pas encore aux AddOns, voir docs/BESOINS-CLIENT-SERVEUR.md).
 local addonName, ns = ...
 local ACA = LibStub("AceAddon-3.0"):GetAddon("ArchCoreAdmin")
 local L = LibStub("AceLocale-3.0"):GetLocale("ArchCoreAdmin")
@@ -12,16 +14,43 @@ local W = ns.W
 
 -- Catégories d'ArchRust.SearchItems (« all » : toutes), puis les favoris.
 local CATEGORIES = { "all", "weapon", "armor", "jewel", "mount", "usable", "other", "favorites" }
--- Objets listés au plus pour une recherche (le total trouvé est affiché à côté).
-local MAX_RESULTS = 1000
 -- Largeur de la page (fenêtre moins les marges), de la liste ; lignes de la liste.
 local PAGE_W, LIST_W, ROWS = 656, 330, 10
+local MAX_QUANTITY = 9999
+-- Couleurs de la ligne d'état.
+local GOOD, BAD, WAITING = "|cff60e060", "|cffff6060", "|cffe0c060"
+
+-- « Nom (TID n) », ou « TID n » pour un objet sans nom connu.
+local function itemLabel(tid)
+  local name = ACA:ItemName(tid)
+  return name and format("%s (TID %s)", name, tostring(tid)) or format("TID %s", tostring(tid))
+end
+
+-- Raison donnée par le serveur (gm.rs) → explication pour le MJ.
+local function explainRefusal(reason, tid)
+  if reason:find("^objet inconnu") then return format(L["REFUSED_ITEM"], itemLabel(tid)) end
+  local who = reason:match("^personnage introuvable : (.+)$")
+  if who then return format(L["REFUSED_CHARACTER"], who) end
+  if reason:find("^inventaire plein") then return L["REFUSED_FULL"] end
+  return format(L["REFUSED_OTHER"], reason)
+end
+
+-- Pas de réponse : le client ne remet pas les refus aux AddOns, seules les causes possibles sont sûres,
+-- sauf si ses tables disent déjà que le serveur n'a pas cet objet.
+local function explainSilence(tid)
+  local t = ACA:ItemTemplate(tid)
+  if t and t.server == false then return format(L["REFUSED_ITEM"], itemLabel(tid)) end
+  return format(L["NO_REPLY_ITEM"], itemLabel(tid))
+end
 
 ns.RegisterSection("items", "TAB_ITEMS", function(page)
   local favorites = ACA.db.global.items
   local catalog = ACA:HasItemCatalog()
   local X, LABEL = LIST_W + 14, 100
   local category = catalog and "all" or "favorites"
+  -- Classe choisie : rang dans ns.CLASSES, 0 pour toutes.
+  local classIndex = 0
+  local status, note, clearStatus
 
   -- Liste des objets, avec icône, TID et niveau requis.
   local list = W.ItemList(page, LIST_W, ROWS, {
@@ -35,6 +64,7 @@ ns.RegisterSection("items", "TAB_ITEMS", function(page)
       return (level and level > 0) and tostring(level) or ""
     end },
   }, function(item)
+    clearStatus()
     page.tid:SetText(tostring(item.tid))
     page.label:SetText(item.favorite or item.name or ACA:ItemName(item.tid) or "")
   end)
@@ -50,11 +80,22 @@ ns.RegisterSection("items", "TAB_ITEMS", function(page)
 
   -- Catégories (onglets du catalogue) et recherche par nom ou TID.
   local tabs = {}
-  local search = W.Edit(page, 150)
+  local search = W.Edit(page, 100)
   local count = W.Label(page, "", "GameFontDisableSmall")
+  local classButton
   local function refresh()
     for c, b in pairs(tabs) do
       if c == category then b:Disable() else b:Enable() end
+    end
+    if catalog then
+      -- Index du catalogue : dit aussi si ce client connaît les classes et les tables du serveur.
+      ACA:ItemIndex()
+      classButton:SetShown(ACA.itemDetails)
+      if ACA.itemServerCount then
+        note:SetText(format(L["ITEMS_NOTE_SERVER"], ACA.itemServerCount))
+      else
+        note:SetText(format(L["ITEMS_NOTE_CATALOG"], ArchRust.GetNumItemTemplates()))
+      end
     end
     if category == "favorites" then
       table.sort(favorites, function(a, b) return a.tid < b.tid end)
@@ -67,9 +108,9 @@ ns.RegisterSection("items", "TAB_ITEMS", function(page)
       count:SetText(format(L["ITEMS_COUNT"], #items))
       return
     end
-    local found, total = ACA:SearchItems(strtrim(search:GetText() or ""), category ~= "all" and category or nil, MAX_RESULTS)
+    local found = ACA:SearchItems(search:GetText(), category ~= "all" and category or nil, ns.CLASSES[classIndex])
     list:SetItems(found)
-    count:SetText(total > #found and format(L["ITEMS_COUNT_OF"], #found, total) or format(L["ITEMS_COUNT"], total))
+    count:SetText(format(L["ITEMS_COUNT"], #found))
   end
   page.refresh = refresh
   local step = math.floor((PAGE_W + 6) / #CATEGORIES)
@@ -92,8 +133,23 @@ ns.RegisterSection("items", "TAB_ITEMS", function(page)
     refresh()
   end)
   W.Tooltip(search, L["SEARCH"], L["TIP_SEARCH"])
-  count:SetPoint("TOPLEFT", page, "TOPLEFT", 232, -34)
-  count:SetWidth(LIST_W - 232)
+  -- Filtre de classe : clic pour la suivante, molette dans les deux sens. Affiché seulement si le
+  -- client donne les classes des objets (voir refresh).
+  local function stepClass(delta)
+    classIndex = (classIndex + delta) % (#ns.CLASSES + 1)
+    local c = ns.CLASSES[classIndex]
+    classButton:SetText(format(L["CLASS_FILTER"], c and c.name or L["CLASS_ALL"]))
+    if category == "favorites" then category = "all" end
+    list:Reset({})
+    refresh()
+  end
+  classButton = W.Button(page, format(L["CLASS_FILTER"], L["CLASS_ALL"]), 150, function() stepClass(1) end, L["TIP_CLASS_FILTER"])
+  classButton:SetPoint("TOPLEFT", page, "TOPLEFT", 180, -30)
+  classButton:EnableMouseWheel(true)
+  classButton:SetScript("OnMouseWheel", function(_, delta) stepClass(delta < 0 and 1 or -1) end)
+  classButton:Hide()
+  count:SetPoint("BOTTOMLEFT", list, "TOPLEFT", 90, 2)
+  count:SetWidth(170)
   count:SetWordWrap(false)
   if not catalog then
     -- Sans catalogue : favoris seulement, et un titre à la place de la recherche.
@@ -135,7 +191,8 @@ ns.RegisterSection("items", "TAB_ITEMS", function(page)
   row(-114, L["TID"])
   page.tid = W.Edit(page, 80)
   page.tid:SetPoint("TOPLEFT", page, "TOPLEFT", X + LABEL, -114)
-  page.tid:SetScript("OnTextChanged", function(self)
+  page.tid:SetScript("OnTextChanged", function(self, userInput)
+    if userInput then clearStatus() end
     local tid = tonumber(self:GetText())
     local t = ACA:ItemTemplate(tid)
     if tid then preview:SetItem(tid, t and t.icon or false) else preview:SetItem(nil, false) end
@@ -144,6 +201,7 @@ ns.RegisterSection("items", "TAB_ITEMS", function(page)
     if tid then info[1] = format(L["ITEM_TIP_TID"], tid) end
     if t and t.level and t.level > 0 then info[#info + 1] = format(L["ITEM_TIP_LEVEL"], t.level) end
     if t and t.category then info[#info + 1] = L["CAT_" .. t.category] end
+    if t and t.server == false then info[#info + 1] = BAD .. L["NOT_ON_SERVER_SHORT"] .. "|r" end
     previewInfo:SetText(table.concat(info, " · "))
   end)
 
@@ -154,15 +212,49 @@ ns.RegisterSection("items", "TAB_ITEMS", function(page)
   local bound = W.Check(page, L["NOT_TRADABLE"], function() end)
   bound:SetPoint("LEFT", qty, "RIGHT", 14, 0)
 
+  -- Ligne d'état : elle prend la place de la note tant qu'il y a quelque chose à dire.
+  local function showStatus(color, text)
+    status:SetText(color .. text .. "|r")
+    status:Show()
+    note:Hide()
+  end
+  function clearStatus()
+    status:Hide()
+    note:Show()
+  end
+
+  -- Envoi de /create ou /additem ; l'issue arrive par ACA.resultHandlers.
+  local sentTid
+  local function give(command, args)
+    local quantity = tonumber(qty:GetText())
+    if quantity and (quantity < 1 or quantity > MAX_QUANTITY) then
+      ACA:Error(format(L["ERR_QUANTITY"], MAX_QUANTITY))
+      return showStatus(BAD, ACA.lastError)
+    end
+    sentTid = tonumber(page.tid:GetText())
+    if ACA:Run(command, args) then
+      showStatus(WAITING, L["RESULT_SENT"])
+    else
+      showStatus(BAD, ACA.lastError)
+    end
+  end
+  local function onResult(kind, text)
+    if kind == "ok" then return showStatus(GOOD, text) end
+    local message = kind == "timeout" and explainSilence(sentTid) or explainRefusal(text, sentTid)
+    ACA:Error(message)
+    showStatus(BAD, message)
+  end
+  ACA.resultHandlers.create, ACA.resultHandlers.additem = onResult, onResult
+
   local create = W.Button(page, L["CREATE"], 150, function()
     local who = strtrim(recipient:GetText() or "")
     if who == "" then who = UnitName("player") or "" end
-    ACA:Run("create", { who, page.tid:GetText(), qty:GetText(), bound:GetChecked() and 1 or 0 })
+    give("create", { who, page.tid:GetText(), qty:GetText(), bound:GetChecked() and 1 or 0 })
   end, L["TIP_CREATE"], "create")
   create:SetPoint("TOPLEFT", page, "TOPLEFT", X, -178)
   -- /additem : raccourci du serveur pour soi-même (objet toujours échangeable).
   local additem = W.Button(page, L["ADDITEM"], 150, function()
-    ACA:Run("additem", { page.tid:GetText(), qty:GetText() })
+    give("additem", { page.tid:GetText(), qty:GetText() })
   end, L["TIP_ADDITEM"], "additem")
   additem:SetPoint("LEFT", create, "RIGHT", 6, 0)
 
@@ -197,10 +289,15 @@ ns.RegisterSection("items", "TAB_ITEMS", function(page)
   end, L["TIP_REMOVE_FAVORITE"])
   remove:SetPoint("LEFT", add, "RIGHT", 6, 0)
 
-  local note = W.Label(page, catalog and format(L["ITEMS_NOTE_CATALOG"], ArchRust.GetNumItemTemplates()) or L["ITEMS_NOTE"], "GameFontDisableSmall")
+  note = W.Label(page, catalog and "" or L["ITEMS_NOTE"], "GameFontDisableSmall")
   note:SetPoint("TOPLEFT", page, "TOPLEFT", X, -282)
   note:SetWidth(PAGE_W - X)
   note:SetWordWrap(true)
+  status = W.Label(page, "", "GameFontHighlightSmall")
+  status:SetPoint("TOPLEFT", page, "TOPLEFT", X, -282)
+  status:SetWidth(PAGE_W - X)
+  status:SetWordWrap(true)
+  status:Hide()
 
   ACA:RegisterMessage("ARCHCOREADMIN_ITEMS", function()
     if category == "favorites" then refresh() else list:Refresh() end
@@ -211,4 +308,5 @@ ns.RegisterSection("items", "TAB_ITEMS", function(page)
     refresh()
   end
   page.list, page.search, page.categories, page.addFavorite = list, search, tabs, add
+  page.status, page.note, page.classButton, page.qty = status, note, classButton, qty
 end)

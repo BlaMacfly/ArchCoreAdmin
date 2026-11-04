@@ -58,6 +58,23 @@ def("simloot", 2, { INT, INT, FLOAT_OPT, FLOAT_OPT }, { section = "loot" })
 -- Lignes d'objets que /simloot envoie au plus (SIMLOOT_LINES de gm.rs), puis une ligne de résumé.
 ns.SIMLOOT_LINES = 40
 
+-- Classes jouables : colonnes Race et Class des tables de l'épisode 8, nom donné par le jeu.
+ns.CLASSES = {
+  { name = "Knight", race = 1, class = 1 }, { name = "Archer", race = 1, class = 2 }, { name = "Mage", race = 1, class = 4 },
+  { name = "Berserker", race = 2, class = 1 }, { name = "Hunter", race = 2, class = 2 }, { name = "Sorcerer", race = 2, class = 4 },
+  { name = "Swashbuckler", race = 3, class = 1 }, { name = "Ranger", race = 3, class = 2 }, { name = "Elementalist", race = 3, class = 4 },
+  { name = "Slayer", race = 4, class = 1 }, { name = "Orbiter", race = 4, class = 2 }, { name = "Scion", race = 4, class = 3 }, { name = "Summoner", race = 4, class = 4 },
+}
+
+-- Partie du corps d'un objet porté (`part` des modèles) → clé de Locales.lua. Les parties 16 à 21 sont
+-- celles des équipements de monstres et de PNJ.
+ns.ITEM_PARTS = {
+  [2] = "PART_BODY", [3] = "PART_HEAD", [4] = "PART_ARMS", [5] = "PART_HANDS", [6] = "PART_LEGS", [7] = "PART_FEET",
+  [9] = "PART_LEFT_HAND", [10] = "PART_RIGHT_HAND", [11] = "PART_RING", [13] = "PART_NECKLACE", [14] = "PART_MOUNT",
+  [15] = "PART_LANCE",
+  [16] = "PART_BODY", [17] = "PART_HEAD", [18] = "PART_ARMS", [19] = "PART_HANDS", [20] = "PART_LEGS", [21] = "PART_FEET",
+}
+
 -- Commandes d'Archonia sans équivalent dans ArchCore pour l'instant (page « Administration »
 -- du wiki d'ArchCore). Elles sont envoyées telles quelles depuis la commande libre.
 for _, usage in ipairs({
